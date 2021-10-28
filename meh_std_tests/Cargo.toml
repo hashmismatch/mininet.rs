@@ -9,6 +9,7 @@ edition = "2021"
 meh_http_common = { path = "../meh_http_common/" }
 meh_http_client = { path = "../meh_http_client/" }
 meh_http_server = { path = "../meh_http_server/" }
+meh_http_server_rest = { path = "../meh_http_server_rest/" }
 async-std = { version = "1.10" }
 
 [dev-dependencies]

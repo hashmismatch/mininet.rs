@@ -1,0 +1,10 @@
+[package]
+name = "meh_http_server_rest"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+meh_http_common = { path = "../meh_http_common/", default-features = false }
+meh_http_server = { path = "../meh_http_server/", default-features = false }

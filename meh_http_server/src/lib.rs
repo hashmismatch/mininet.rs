@@ -206,6 +206,7 @@ where
             body: body.to_vec(),
             headers: headers_buffer
                 .iter()
+                .filter(|&h| *h != httparse::EMPTY_HEADER)
                 .filter_map(|h| {
                     if let Ok(val) = core::str::from_utf8(h.value) {
                         Some(HttpServerHeader {

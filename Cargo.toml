@@ -2,6 +2,7 @@
 members = [
 	"meh_http_client/",
 	"meh_http_server/",
+	"meh_http_server_rest/",
 	"meh_http_common/"
 ]
 
