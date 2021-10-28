@@ -1,0 +1,15 @@
+[package]
+name = "meh_http_server"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+meh_http_common = { path = "../meh_http_common/", default-features = false }
+slog = "2.7.0"
+futures = { version = "0.3.15", default-features = false }
+httparse = "1.5.1"
+serde = "1.0.130"
+serde_json = "1.0.67"
+async-trait = "0.1.51"

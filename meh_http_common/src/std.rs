@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use crate::stack::{TcpStack, TcpError, TcpListen, TcpSocket};
 use async_trait::async_trait;
-use async_std::io::{WriteExt, ReadExt};
+use async_std::{io::{WriteExt, ReadExt}, net::TcpListener};
 
 pub struct StdTcpSocketListener(async_std::net::TcpListener);
 
@@ -10,11 +10,11 @@ pub struct StdTcpSocketListener(async_std::net::TcpListener);
 impl TcpListen for StdTcpSocketListener {
     type TcpSocket = StdTcpSocket;
 
-    async fn accept(&mut self) -> Result<Self::TcpSocket, TcpError> {
+    async fn accept(&mut self) -> Result<(Self::TcpSocket, crate::addr::SocketAddr), TcpError> {
         match self.0.accept().await {
-            Ok((socket, _addr)) => {
+            Ok((socket, addr)) => {
                 let s = StdTcpSocket(socket);
-                Ok(s)
+                Ok((s, from_async_socket_addr(addr)))
             },
             Err(_) => {
                 Err(TcpError::Unknown)
@@ -27,6 +27,10 @@ pub struct StdTcpSocket(async_std::net::TcpStream);
 
 #[async_trait]
 impl TcpSocket for StdTcpSocket {
+    async fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<usize, TcpError> {
+        self.0.read(buf).await.map_err(|_| TcpError::Unknown)
+    }
+
     async fn read_to_end(&mut self) -> Result<Vec<u8>, TcpError> {
         let mut buf = vec![];
         match self.0.read_to_end(&mut buf).await {
@@ -46,12 +50,42 @@ impl TcpSocket for StdTcpSocket {
 #[derive(Default)]
 pub struct StdTcpStack;
 
+pub fn to_async_socket_addr(addr: crate::addr::SocketAddr) -> async_std::net::SocketAddr {
+    match addr {
+        embedded_nal::SocketAddr::V4(v4) => {
+            async_std::net::SocketAddrV4::new(
+                v4.ip().octets().into(),
+                v4.port()
+            ).into()
+        },
+        embedded_nal::SocketAddr::V6(v6) => {
+            async_std::net::SocketAddrV6::new(v6.ip().octets().into(), v6.port(), v6.flowinfo(), v6.scope_id()).into()
+        },
+    }
+}
+
+pub fn from_async_socket_addr(addr: async_std::net::SocketAddr) -> crate::addr::SocketAddr {
+    match addr {
+        SocketAddr::V4(v4) => {
+            embedded_nal::SocketAddrV4::new(v4.ip().octets().into(), v4.port()).into()
+        },
+        SocketAddr::V6(v6) => {
+            embedded_nal::SocketAddrV6::new(v6.ip().octets().into(), v6.port(), v6.flowinfo(), v6.scope_id()).into()
+        },
+    }
+}
+
 #[async_trait]
 impl TcpStack for StdTcpStack {
     type TcpSocket = StdTcpSocket;
+    type TcpListener = StdTcpSocketListener;
 
     async fn create_socket_connected(&mut self, addr: crate::addr::SocketAddr) -> Result<Self::TcpSocket, TcpError> {
-        panic!("todo");
+
+        let addr = to_async_socket_addr(addr);
+        let socket = async_std::net::TcpStream::connect(addr).await.map_err(|_e| TcpError::Unknown)?;
+        Ok(StdTcpSocket(socket))
+
     }
 
     async fn get_socket_address(&self, host_and_port: &str) -> Result<crate::addr::SocketAddr, TcpError> {
@@ -60,16 +94,18 @@ impl TcpStack for StdTcpStack {
         match host_and_port.to_socket_addrs().await {
             Ok(mut iter) => {
                 match iter.next() {
-                    Some(SocketAddr::V4(v4)) => {
-                        let net_ip = v4.ip().octets();
-                        let ip = crate::addr::Ipv4Addr::new(net_ip[0], net_ip[1], net_ip[2], net_ip[3]);
-                        let s = crate::addr::SocketAddrV4::new(ip, v4.port());
-                        Ok(s.into())
+                    Some(a) => {
+                        Ok(from_async_socket_addr(a))
                     },
                     _ => Err(TcpError::Unknown)
                 }
             },
             Err(_e) => Err(TcpError::Unknown)
         }        
+    }
+
+    async fn create_socket_listener(&mut self, addr: crate::addr::SocketAddr) -> Result<Self::TcpListener, TcpError> {
+        let listener = TcpListener::bind(to_async_socket_addr(addr)).await.map_err(|_| TcpError::Unknown)?;
+        Ok(StdTcpSocketListener(listener))
     }
 }

@@ -8,6 +8,11 @@ edition = "2021"
 [dependencies]
 meh_http_common = { path = "../meh_http_common/" }
 meh_http_client = { path = "../meh_http_client/" }
+meh_http_server = { path = "../meh_http_server/" }
+async-std = { version = "1.10" }
 
 [dev-dependencies]
 tokio = { version = "1.12.0", features = ["full"] }
+slog = "2.6.0"
+slog-term = "2.6.0"
+slog-async = "2.6.0"
