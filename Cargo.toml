@@ -1,0 +1,8 @@
+[workspace]
+members = [
+	"meh_http_common/"
+]
+
+exclude = [
+
+]
