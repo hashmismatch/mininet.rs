@@ -7,6 +7,7 @@ pub enum TcpError {
     Unknown
 }
 
+
 #[async_trait]
 pub trait TcpListen {
     type TcpSocket: TcpSocket;
@@ -15,7 +16,7 @@ pub trait TcpListen {
 }
 
 #[async_trait]
-pub trait TcpSocket {
+pub trait TcpSocket: Send + Sync + Sized + 'static {
     async fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<usize, TcpError>;
     async fn read_to_end(&mut self) -> Result<Vec<u8>, TcpError>;
     async fn send(&mut self, data: &[u8]) -> Result<usize, TcpError>;

@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 meh_http_common = { path = "../meh_http_common/", default-features = false }
 meh_http_server = { path = "../meh_http_server/", default-features = false }
+async-trait = "0.1.51"
+futures = { version = "0.3", default-features = false }

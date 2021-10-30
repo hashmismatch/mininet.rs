@@ -236,7 +236,7 @@ where
 #[async_trait]
 impl<S> HttpResponseWriter for HttpContext<S>
 where
-    S: TcpSocket + Send,
+    S: TcpSocket,
 {
     async fn write(&mut self, data: &[u8]) -> Result<(), TcpError> {
         self.socket.send(data).await?;

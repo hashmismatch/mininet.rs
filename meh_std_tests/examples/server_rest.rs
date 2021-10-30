@@ -8,6 +8,9 @@ use meh_http_common::resp::HttpResponseWriter;
 use meh_http_server::HttpContext;
 use meh_http_common::std::StdTcpSocket;
 use meh_http_server_rest::rest_handler;
+use meh_http_server_rest::allow_cors_all;
+use meh_http_server_rest::not_found;
+use meh_http_server_rest::{HttpMidlewareChain, HttpMiddleware};
 
 fn main() -> Result<(), TcpError> {
 
@@ -26,8 +29,16 @@ fn main() -> Result<(), TcpError> {
 
         async fn handle_request(mut ctx: HttpContext<StdTcpSocket>) {
             
-            rest_handler(ctx).await;
+            //rest_handler(ctx).await;
 
+            let a = allow_cors_all();
+            let b = not_found();
+
+            let h = HttpMidlewareChain::new(a, b);
+
+            h.process(ctx).await;
+
+            //a.handle_and_chain(ctx, b).await;
         }
 
         http_server(&logger, listener, handle_request).await;
