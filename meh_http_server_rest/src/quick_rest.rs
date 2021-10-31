@@ -1,0 +1,121 @@
+use std::borrow::Cow;
+
+use meh_http_common::{resp::HttpStatusCodes, stack::TcpSocket};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use slog::{debug, o, trace};
+
+use crate::{HandlerResult, HttpMidlewareFnFut, HttpResponseBuilder};
+
+#[derive(Serialize, Deserialize)]
+pub struct ValueDto<T>
+    where T: Serialize
+{
+    pub value: T
+}
+
+pub struct QuickRestValue<T>
+    where T: Serialize + Send + DeserializeOwned + core::fmt::Debug
+{
+    pub id: Cow<'static, str>,
+    pub get: Option<Box<dyn FnOnce() -> T + Send>>,
+    pub set: Option<Box<dyn FnOnce(T) -> () + Send>>
+}
+
+impl<T> QuickRestValue<T>
+    where T: Serialize + Send + DeserializeOwned + core::fmt::Debug
+{
+    pub fn new_getter<G>(id: Cow<'static, str>, getter: G) -> Self
+        where G: FnOnce() -> T + Send + 'static
+    {
+        QuickRestValue {
+            id,
+            get: Some(Box::new(getter)),
+            set: None
+        }
+    }
+
+    pub fn new_getter_and_setter<G, S>(id: Cow<'static, str>, getter: G, setter: S) -> Self
+        where G: FnOnce() -> T + Send + 'static,
+              S: FnOnce(T) -> () + Send + 'static
+    {
+        QuickRestValue {
+            id,
+            get: Some(Box::new(getter)),
+            set: Some(Box::new(setter))
+        }
+    }
+}
+
+
+async fn quick_rest_value_fn<S, T>(ctx: HttpResponseBuilder<S>, v: QuickRestValue<T>) -> HandlerResult<S>
+    where S: TcpSocket,
+          T: Serialize + DeserializeOwned + Send + core::fmt::Debug
+{
+    let p = format!("/{}", v.id);
+    if ctx.request.path == Some(p) {
+        let l = ctx.logger.new(o!("id" => v.id.to_string()));
+        debug!(l, "Matched with Quick REST.");
+        let method = ctx.request.method.as_ref().map(|s| s.as_str());
+
+        if let Some(getter) = v.get {
+            match method {
+                Some("GET") => {
+                    let value = (getter)();
+                    let dto = ValueDto {
+                        value
+                    };
+
+                    let json = serde_json::to_string_pretty(&dto);
+                    if let Ok(json) = json {
+                        debug!(l, "Replying with the JSON value. Current value, as debug format: {:?}", dto.value);
+                        let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await;
+                        return match r {
+                            Ok(c) => c.into(),
+                            Err(e) => e.into()
+                        };
+                    }
+                }
+                _ => ()
+            }
+        }
+
+        if let Some(setter) = v.set {
+            match method {
+                Some("POST" | "PUT") => {
+                    let dto = serde_json::from_slice::<ValueDto<T>>(&ctx.request.body);
+                    if let Ok(dto) = dto {                        
+                        debug!(l, "Set the new value. New value, as debug format: {:?}", dto.value);
+                        (setter)(dto.value);
+                        let r = ctx.response(HttpStatusCodes::NoContent, None, None).await;
+                        return match r {
+                            Ok(c) => c.into(),
+                            Err(e) => e.into()
+                        };
+                    }
+                },
+                _ => ()
+            }
+        }
+
+    }
+
+    ctx.into()
+}
+
+
+pub fn quick_rest_value<S, T>(q: QuickRestValue<T>) -> HttpMidlewareFnFut<S>
+    where S: TcpSocket,
+          T: Serialize + Send + DeserializeOwned + 'static + core::fmt::Debug
+{
+    HttpMidlewareFnFut::new(|ctx| {
+        quick_rest_value_fn(ctx, q)
+    })
+}
+
+/*
+pub fn not_found<S>() -> HttpMidlewareFnFut<S>
+    where S: TcpSocket
+{
+    HttpMidlewareFnFut::new(not_found_fn)
+}
+*/

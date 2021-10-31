@@ -1,6 +1,9 @@
+pub mod quick_rest;
+
 use std::convert::Infallible;
 use std::future::Future;
 use std::marker::PhantomData;
+use std::ops::Deref;
 use std::pin::Pin;
 
 use futures::pin_mut;
@@ -18,27 +21,44 @@ pub struct HttpResponseBuilder<S>
     ctx: HttpContext<S>
 }
 
+impl<S> Deref for  HttpResponseBuilder<S>
+where S: TcpSocket
+{
+    type Target = HttpContext<S>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.ctx
+    }
+}
+
 impl<S> HttpResponseBuilder<S>
     where S: TcpSocket
 {
-    pub async fn response(mut self, code: HttpStatusCodes, content_type: &str, body: &str) -> Result<HttpReponseComplete, RestError> {
+    pub async fn response(mut self, code: HttpStatusCodes, content_type: Option<&str>, body: Option<&str>) -> Result<HttpReponseComplete, RestError> {
         let (http_code, http_code_str) = code.to_http();
 
         self.ctx.socket.send(format!("HTTP/1.1 {} {}\r\n", http_code, http_code_str).as_bytes()).await?;
-        self.ctx.write(b"Content-Type: ").await?;
-        self.ctx.write(content_type.as_bytes()).await?;
-        self.ctx.write(b"\r\n").await?;
+
+        if let Some(content_type) = content_type {
+            self.ctx.write(b"Content-Type: ").await?;
+            self.ctx.write(content_type.as_bytes()).await?;
+            self.ctx.write(b"\r\n").await?;
+        }
 
         for header in self.additional_headers {
             self.ctx.write(format!("{}: {}\r\n", header.name, header.value).as_bytes()).await?;
         }
 
         self.ctx.write(b"\r\n").await?;
-        self.ctx.write(body.as_bytes()).await?;
+        if let Some(body) = body {
+            self.ctx.write(body.as_bytes()).await?;
+        }
 
         Ok(HttpReponseComplete::new())
     }
 }
+
+
 
 pub struct HttpReponseComplete { }
 impl HttpReponseComplete {
@@ -253,7 +273,7 @@ pub async fn not_found_fn<S>(ctx: HttpResponseBuilder<S>) -> HandlerResult<S>
     where S: TcpSocket
 {
     let html = format!("<h1>Not found!</h1><p>Request URL: <code>{:?}</code>, method <code>{:?}</code>.</p>", ctx.ctx.request.path, ctx.ctx.request.method);
-    match ctx.response(HttpStatusCodes::NotFound, "text/html", &html).await {
+    match ctx.response(HttpStatusCodes::NotFound, "text/html".into(), Some(&html)).await {
         Ok(c) => c.into(),
         Err(e) => e.into()
     }

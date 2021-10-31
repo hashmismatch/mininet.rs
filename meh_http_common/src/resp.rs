@@ -15,6 +15,8 @@ pub trait HttpResponseWriter {
 #[derive(Copy, Clone, Debug)]
 pub enum HttpStatusCodes {
     Ok = 200,
+    Accepted = 202,
+    NoContent = 204,
     BadRequest = 400,
     NotFound = 404,
     InternalError = 500
@@ -27,6 +29,8 @@ impl HttpStatusCodes {
             HttpStatusCodes::BadRequest => "Bad Request",
             HttpStatusCodes::NotFound => "Not Found",
             HttpStatusCodes::InternalError => "Internal Server Error",
+            HttpStatusCodes::Accepted => "Accepted",
+            HttpStatusCodes::NoContent => "No Content",
         };
 
         (*self as u16, t)

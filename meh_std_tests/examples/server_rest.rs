@@ -1,20 +1,25 @@
-use meh_http_common::std::StdTcpStack;
-use meh_http_common::stack::TcpStack;
-use meh_http_common::stack::TcpError;
+use std::sync::Arc;
+use std::sync::Mutex;
+
 use meh_http_client::http_get;
-use slog::{o, Drain, info};
-use meh_http_server::http_server;
 use meh_http_common::resp::HttpResponseWriter;
-use meh_http_server::HttpContext;
+use meh_http_common::stack::TcpError;
+use meh_http_common::stack::TcpStack;
 use meh_http_common::std::StdTcpSocket;
-use meh_http_server_rest::rest_handler;
+use meh_http_common::std::StdTcpStack;
+use meh_http_server::http_server;
+use meh_http_server::HttpContext;
 use meh_http_server_rest::allow_cors_all;
 use meh_http_server_rest::not_found;
-use meh_http_server_rest::{HttpMidlewareChain, HttpMiddleware};
+use meh_http_server_rest::quick_rest::quick_rest_value;
+use meh_http_server_rest::{quick_rest::QuickRestValue, rest_handler};
+use meh_http_server_rest::{HttpMiddleware, HttpMidlewareChain};
+use slog::{info, o, Drain};
 
 fn main() -> Result<(), TcpError> {
+    let num_value = Arc::new(Mutex::new(42));
 
-    let example = async {
+    let example = async move {
         let decorator = slog_term::TermDecorator::new().build();
         let drain = slog_term::CompactFormat::new(decorator).build().fuse();
         let drain = slog_async::Async::new(drain).build().fuse();
@@ -22,26 +27,48 @@ fn main() -> Result<(), TcpError> {
 
         let mut stack = StdTcpStack;
 
-        let addr = meh_http_common::addr::SocketAddrV4::new(meh_http_common::addr::Ipv4Addr::new(127, 0, 0, 1), 8080);
+        let addr = meh_http_common::addr::SocketAddrV4::new(
+            meh_http_common::addr::Ipv4Addr::new(127, 0, 0, 1),
+            8080,
+        );
         let listener = stack.create_socket_listener(addr.into()).await?;
 
         info!(logger, "Listening at http://{}/", addr);
 
-        async fn handle_request(mut ctx: HttpContext<StdTcpSocket>) {
-            
-            //rest_handler(ctx).await;
+        async fn handle_request(ctx: HttpContext<StdTcpSocket>, num_value: Arc<Mutex<i32>>) {
+            let q = {
+                let v = QuickRestValue::new_getter_and_setter(
+                    "num".into(),
+                    {
+                        let num_value = num_value.clone();
+                        move || {
+                            if let Ok(n) = num_value.lock() {
+                                *n
+                            } else {
+                                0
+                            }
+                        }
+                    },
+                    move |v| {
+                        if let Ok(mut n) = num_value.lock() {
+                            *n = v;
+                        }
+                    },
+                );
+                quick_rest_value(v)
+            };
 
-            let a = allow_cors_all();
-            let b = not_found();
-
-            let h = HttpMidlewareChain::new(a, b);
+            let h = HttpMidlewareChain::new(allow_cors_all(), q);
+            let h = HttpMidlewareChain::new(h, not_found());
 
             h.process(ctx).await;
-
-            //a.handle_and_chain(ctx, b).await;
         }
 
-        http_server(&logger, listener, handle_request).await;
+        let num_value = num_value.clone();
+        http_server(&logger, listener, |ctx| {
+            handle_request(ctx, num_value.clone())
+        })
+        .await;
 
         Ok(())
     };
