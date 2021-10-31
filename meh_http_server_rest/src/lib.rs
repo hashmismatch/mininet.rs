@@ -1,4 +1,5 @@
 pub mod quick_rest;
+pub mod openapi;
 
 use std::convert::Infallible;
 use std::future::Future;

@@ -1,10 +1,10 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashMap};
 
 use meh_http_common::{resp::HttpStatusCodes, stack::TcpSocket};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use slog::{debug, o, trace};
 
-use crate::{HandlerResult, HttpMidlewareFnFut, HttpResponseBuilder};
+use crate::{HandlerResult, HttpMidlewareChain, HttpMidlewareFnFut, HttpResponseBuilder, openapi::{Info, OpenApi, Path, PathMethod, RequestBody, RequestContent, Response, ResponseContent, Server}};
 
 #[derive(Serialize, Deserialize)]
 pub struct ValueDto<T>
@@ -112,10 +112,123 @@ pub fn quick_rest_value<S, T>(q: QuickRestValue<T>) -> HttpMidlewareFnFut<S>
     })
 }
 
-/*
-pub fn not_found<S>() -> HttpMidlewareFnFut<S>
-    where S: TcpSocket
+
+async fn quick_rest_value_openapi_fn<S, T>(ctx: HttpResponseBuilder<S>, id: Cow<'static, str>) -> HandlerResult<S>
+    where S: TcpSocket,
+          T: Serialize + DeserializeOwned + Send + core::fmt::Debug
 {
-    HttpMidlewareFnFut::new(not_found_fn)
+    let p = format!("/{}/api", id);
+    if ctx.request.path == Some(p) && ctx.request.method.as_ref().map(|s| s.as_str()) == Some("GET") {
+        debug!(ctx.logger, "Open API hit!");
+
+        {
+            let schema = serde_json::json!(
+                {
+                    "type": "object",
+                    "properties": {
+                        "value": {
+                            "type": "integer"
+                        }
+                    }
+                }
+            );
+            
+            let mut methods = HashMap::new();
+
+            // get
+            {
+                let mut response_contents = HashMap::new();
+                response_contents.insert("application/json".into(), ResponseContent {
+                    schema: schema.clone()
+                });
+
+                let mut responses = HashMap::new();
+                responses.insert("200".into(), Response {
+                    description: "Response for the current value".into(),
+                    content: response_contents
+                });
+
+                methods.insert("get".into(), PathMethod {
+                    description: None,
+                    summary: "Get the current value".into(),
+                    responses,
+                    request_body: None
+                });
+            }
+
+            // set
+            {
+                let mut responses = HashMap::new();
+                responses.insert("204".into(), Response {
+                    description: "Successfully set the new value".into(),
+                    content: HashMap::new()
+                });
+
+                methods.insert("post".into(), PathMethod {
+                    description: None,
+                    summary: "Try to set a new value for this variable".into(),
+                    responses,
+                    request_body: Some(RequestBody {
+                        required: true,
+                        content: [("application/json".into(), RequestContent {
+                            schema: schema.clone()
+                        })].into_iter().collect()
+                    })
+                });
+            }
+
+            
+
+            let p: Cow<str> = format!("/{}", id).into();
+            let mut paths = HashMap::new();
+            paths.insert(p.clone(), Path {
+                //path: p,
+                methods
+            });
+
+            let o = OpenApi {
+                openapi_version: "3.0.0".into(),
+                info: Info {
+                    title: "Quick".into(),
+                    description: "API".into(),
+                    version: "0.1.0".into()
+                },
+                servers: vec![
+                    Server {
+                        description: "here".into(),
+                        url: "http://localhost:8080".into()
+                    }
+                ],
+                paths
+            };
+
+            let json = serde_json::to_string_pretty(&o);
+            if let Ok(json) = json {
+                let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await;
+                return match r {
+                    Ok(c) => c.into(),
+                    Err(e) => e.into()
+                };
+            }
+        };
+    }
+
+    ctx.into()
 }
-*/
+
+pub fn quick_rest_value_with_openapi<S, T>(q: QuickRestValue<T>) -> HttpMidlewareChain<HttpMidlewareFnFut<S>, HttpMidlewareFnFut<S>, S>
+    where S: TcpSocket,
+          T: Serialize + Send + DeserializeOwned + 'static + core::fmt::Debug
+{
+    let id = q.id.clone();
+
+    let val = HttpMidlewareFnFut::new(|ctx| {
+        quick_rest_value_fn(ctx, q)
+    });
+
+    let openapi = HttpMidlewareFnFut::new(move |ctx| {
+        quick_rest_value_openapi_fn::<S, T>(ctx, id)
+    });
+
+    HttpMidlewareChain::new(val, openapi)
+}

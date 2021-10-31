@@ -12,6 +12,7 @@ use meh_http_server::HttpContext;
 use meh_http_server_rest::allow_cors_all;
 use meh_http_server_rest::not_found;
 use meh_http_server_rest::quick_rest::quick_rest_value;
+use meh_http_server_rest::quick_rest::quick_rest_value_with_openapi;
 use meh_http_server_rest::{quick_rest::QuickRestValue, rest_handler};
 use meh_http_server_rest::{HttpMiddleware, HttpMidlewareChain};
 use slog::{info, o, Drain};
@@ -55,7 +56,8 @@ fn main() -> Result<(), TcpError> {
                         }
                     },
                 );
-                quick_rest_value(v)
+                //quick_rest_value(v)
+                quick_rest_value_with_openapi(v)
             };
 
             let h = HttpMidlewareChain::new(allow_cors_all(), q);
