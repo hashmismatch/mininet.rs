@@ -15,6 +15,7 @@ use meh_http_common::req::HttpServerHeader;
 use meh_http_common::resp::{HttpResponseWriter, HttpStatusCodes};
 use meh_http_common::stack::{TcpError, TcpSocket};
 use meh_http_server::HttpContext;
+use slog::warn;
 
 pub struct HttpResponseBuilder<S>
 where
@@ -389,11 +390,14 @@ where
         "<h1>Not found!</h1><p>Request URL: <code>{:?}</code>, method <code>{:?}</code>.</p>",
         ctx.ctx.request.path, ctx.ctx.request.method
     );
+
+    warn!(ctx.logger, "404 not found!");
+
     match ctx
         .response(HttpStatusCodes::NotFound, "text/html".into(), Some(&html))
         .await
     {
-        Ok(c) => c.into(),
+        Ok(c) => { c.into() },
         Err(e) => e.into(),
     }
 }

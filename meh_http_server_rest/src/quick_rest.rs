@@ -1,8 +1,8 @@
 use std::{any::TypeId, borrow::Cow, collections::HashMap};
 
-use meh_http_common::{resp::HttpStatusCodes, stack::TcpSocket};
+use meh_http_common::{req::HttpServerHeader, resp::HttpStatusCodes, stack::TcpSocket};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use slog::{debug, o, trace};
+use slog::{debug, o, trace, warn};
 
 use crate::{HandlerResult, HttpMidlewareChain, HttpMidlewareFn, HttpMidlewareFnFut, HttpResponseBuilder, openapi::{Info, OpenApi, Path, PathMethod, RequestBody, RequestContent, Response, ResponseContent, Server}};
 
@@ -91,7 +91,7 @@ impl<T> QuickRestValue<T>
 }
 
 
-async fn quick_rest_value_fn<S, T>(ctx: HttpResponseBuilder<S>, v: QuickRestValue<T>) -> HandlerResult<S>
+async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRestValue<T>) -> HandlerResult<S>
     where S: TcpSocket,
           T: Serialize + DeserializeOwned + Send + core::fmt::Debug
 {
@@ -100,6 +100,20 @@ async fn quick_rest_value_fn<S, T>(ctx: HttpResponseBuilder<S>, v: QuickRestValu
         let l = ctx.logger.new(o!("id" => v.id.to_string()));
         debug!(l, "Matched with Quick REST.");
         let method = ctx.request.method.as_ref().map(|s| s.as_str());
+
+        if let Some("OPTIONS") = method {
+            ctx.additional_headers.push(HttpServerHeader {
+                name: "Allow".into(),
+                value: "OPTIONS, GET, POST".into(),
+            });
+            ctx.additional_headers.push(HttpServerHeader { name: "Access-Control-Allow-Methods".into(), value: "OPTIONS, GET, POST".into() });
+            ctx.additional_headers.push(HttpServerHeader { name: "Access-Control-Allow-Headers".into(), value: "*".into() });
+            let r = ctx.response(HttpStatusCodes::NoContent, None, None).await;
+            return match r {
+                Ok(c) => c.into(),
+                Err(e) => e.into()
+            };
+        }
 
         if let Some(getter) = v.get {
             match method {
@@ -127,20 +141,27 @@ async fn quick_rest_value_fn<S, T>(ctx: HttpResponseBuilder<S>, v: QuickRestValu
             match method {
                 Some("POST" | "PUT") => {
                     let dto = serde_json::from_slice::<ValueDto<T>>(&ctx.request.body);
-                    if let Ok(dto) = dto {                        
-                        debug!(l, "Set the new value. New value, as debug format: {:?}", dto.value);
-                        (setter)(dto.value);
-                        let r = ctx.response(HttpStatusCodes::NoContent, None, None).await;
-                        return match r {
-                            Ok(c) => c.into(),
-                            Err(e) => e.into()
-                        };
+                    match dto {
+                        Ok(dto) => {
+                            debug!(l, "Set the new value. New value, as debug format: {:?}", dto.value);
+                            (setter)(dto.value);
+                            let r = ctx.response(HttpStatusCodes::NoContent, None, None).await;
+                            return match r {
+                                Ok(c) => c.into(),
+                                Err(e) => e.into()
+                            };
+                        },
+                        Err(e) => {
+                            warn!(ctx.logger, "Failed to deserialize the body: {:?}", e);
+                            if let Ok(body) = core::str::from_utf8(&ctx.request.body) {
+                                debug!(ctx.logger, "Body as a string: {body}", body=body);
+                            }
+                        }
                     }
                 },
                 _ => ()
             }
         }
-
     }
 
     ctx.into()
