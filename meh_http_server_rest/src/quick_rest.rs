@@ -1,10 +1,40 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::{any::TypeId, borrow::Cow, collections::HashMap};
 
 use meh_http_common::{resp::HttpStatusCodes, stack::TcpSocket};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use slog::{debug, o, trace};
 
-use crate::{HandlerResult, HttpMidlewareChain, HttpMidlewareFnFut, HttpResponseBuilder, openapi::{Info, OpenApi, Path, PathMethod, RequestBody, RequestContent, Response, ResponseContent, Server}};
+use crate::{HandlerResult, HttpMidlewareChain, HttpMidlewareFn, HttpMidlewareFnFut, HttpResponseBuilder, openapi::{Info, OpenApi, Path, PathMethod, RequestBody, RequestContent, Response, ResponseContent, Server}};
+
+
+struct OpenApiContext {
+    enabled: bool,
+    is_openapi_request: bool,
+    paths: HashMap<Cow<'static, str>, Path>
+}
+
+impl Default for OpenApiContext {
+    fn default() -> Self {
+        Self { enabled: false, is_openapi_request: false, paths: HashMap::new() }
+    }
+}
+
+pub fn enable_open_api<S>() -> HttpMidlewareFn<S>
+    where S: TcpSocket
+{
+    HttpMidlewareFn::new(|mut ctx: HttpResponseBuilder<S>| {        
+        let is_openapi_request = 
+            ctx.request.path.as_ref().map(|p| p.ends_with("?openapi")) == Some(true) && 
+            ctx.request.method.as_ref().map(|s| s.as_str()) == Some("GET");
+
+        let v = ctx.extras.get_mut::<OpenApiContext>();
+        v.enabled = true;
+        v.is_openapi_request = is_openapi_request;
+
+        ctx.into()
+    })
+}
+
 
 #[derive(Serialize, Deserialize)]
 pub struct ValueDto<T>
@@ -16,6 +46,7 @@ pub struct ValueDto<T>
 pub struct QuickRestValue<T>
     where T: Serialize + Send + DeserializeOwned + core::fmt::Debug
 {
+    pub api: Cow<'static, str>,
     pub id: Cow<'static, str>,
     pub get: Option<Box<dyn FnOnce() -> T + Send>>,
     pub set: Option<Box<dyn FnOnce(T) -> () + Send>>
@@ -24,21 +55,34 @@ pub struct QuickRestValue<T>
 impl<T> QuickRestValue<T>
     where T: Serialize + Send + DeserializeOwned + core::fmt::Debug
 {
-    pub fn new_getter<G>(id: Cow<'static, str>, getter: G) -> Self
+    pub fn new_getter<G>(api: Cow<'static, str>, id: Cow<'static, str>, getter: G) -> Self
         where G: FnOnce() -> T + Send + 'static
     {
         QuickRestValue {
+            api,
             id,
             get: Some(Box::new(getter)),
             set: None
         }
     }
 
-    pub fn new_getter_and_setter<G, S>(id: Cow<'static, str>, getter: G, setter: S) -> Self
+    pub fn new_setter<S>(api: Cow<'static, str>, id: Cow<'static, str>, setter: S) -> Self
+        where S: FnOnce(T) -> () + Send + 'static
+    {
+        QuickRestValue {
+            api,
+            id,
+            get: None,
+            set: Some(Box::new(setter))
+        }
+    }
+
+    pub fn new_getter_and_setter<G, S>(api: Cow<'static, str>, id: Cow<'static, str>, getter: G, setter: S) -> Self
         where G: FnOnce() -> T + Send + 'static,
               S: FnOnce(T) -> () + Send + 'static
     {
         QuickRestValue {
+            api,
             id,
             get: Some(Box::new(getter)),
             set: Some(Box::new(setter))
@@ -112,22 +156,39 @@ pub fn quick_rest_value<S, T>(q: QuickRestValue<T>) -> HttpMidlewareFnFut<S>
     })
 }
 
+pub trait OpenApiType: Serialize + DeserializeOwned + Send + core::fmt::Debug + 'static {
+    fn json_schema_type() -> Cow<'static, str>;
+}
 
-async fn quick_rest_value_openapi_fn<S, T>(ctx: HttpResponseBuilder<S>, id: Cow<'static, str>) -> HandlerResult<S>
+impl OpenApiType for usize {
+    fn json_schema_type() -> Cow<'static, str> {
+        "integer".into()
+    }
+}
+
+impl OpenApiType for String {
+    fn json_schema_type() -> Cow<'static, str> {
+        "string".into()
+    }
+}
+
+
+async fn quick_rest_value_openapi_fn<S, T>(mut ctx: HttpResponseBuilder<S>, id: Cow<'static, str>) -> HandlerResult<S>
     where S: TcpSocket,
-          T: Serialize + DeserializeOwned + Send + core::fmt::Debug
+          T: OpenApiType
 {
-    let p = format!("/{}/api", id);
-    if ctx.request.path == Some(p) && ctx.request.method.as_ref().map(|s| s.as_str()) == Some("GET") {
-        debug!(ctx.logger, "Open API hit!");
-
+    let openapi = ctx.extras.get_mut::<OpenApiContext>();
+    
+    if openapi.enabled && openapi.is_openapi_request {
         {
+            let ty = T::json_schema_type();
+
             let schema = serde_json::json!(
                 {
                     "type": "object",
                     "properties": {
                         "value": {
-                            "type": "integer"
+                            "type": ty
                         }
                     }
                 }
@@ -177,15 +238,10 @@ async fn quick_rest_value_openapi_fn<S, T>(ctx: HttpResponseBuilder<S>, id: Cow<
                 });
             }
 
-            
-
             let p: Cow<str> = format!("/{}", id).into();
-            let mut paths = HashMap::new();
-            paths.insert(p.clone(), Path {
-                //path: p,
-                methods
-            });
-
+            openapi.paths.insert(p, Path { methods });
+            
+            /*
             let o = OpenApi {
                 openapi_version: "3.0.0".into(),
                 info: Info {
@@ -210,6 +266,7 @@ async fn quick_rest_value_openapi_fn<S, T>(ctx: HttpResponseBuilder<S>, id: Cow<
                     Err(e) => e.into()
                 };
             }
+            */
         };
     }
 
@@ -218,7 +275,7 @@ async fn quick_rest_value_openapi_fn<S, T>(ctx: HttpResponseBuilder<S>, id: Cow<
 
 pub fn quick_rest_value_with_openapi<S, T>(q: QuickRestValue<T>) -> HttpMidlewareChain<HttpMidlewareFnFut<S>, HttpMidlewareFnFut<S>, S>
     where S: TcpSocket,
-          T: Serialize + Send + DeserializeOwned + 'static + core::fmt::Debug
+          T: OpenApiType
 {
     let id = q.id.clone();
 
@@ -230,5 +287,50 @@ pub fn quick_rest_value_with_openapi<S, T>(q: QuickRestValue<T>) -> HttpMidlewar
         quick_rest_value_openapi_fn::<S, T>(ctx, id)
     });
 
-    HttpMidlewareChain::new(val, openapi)
+    HttpMidlewareChain::new_pair(val, openapi)
+}
+
+async fn openapi_handler_fn<S>(mut ctx: HttpResponseBuilder<S>) -> HandlerResult<S>
+    where S: TcpSocket
+{
+    let openapi = ctx.extras.get_mut::<OpenApiContext>();
+    if openapi.enabled && openapi.is_openapi_request {
+        let mut paths = HashMap::new();
+        std::mem::swap(&mut paths, &mut openapi.paths);
+
+        let o = OpenApi {
+            openapi_version: "3.0.0".into(),
+            info: Info {
+                title: "Quick".into(),
+                description: "API".into(),
+                version: "0.1.0".into()
+            },
+            servers: vec![
+                Server {
+                    description: "here".into(),
+                    url: "http://localhost:8080".into()
+                }
+            ],
+            paths
+        };
+
+        let json = serde_json::to_string_pretty(&o);
+        if let Ok(json) = json {
+            let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await;
+            return match r {
+                Ok(c) => c.into(),
+                Err(e) => e.into()
+            };
+        }
+    }
+
+    ctx.into()
+}
+
+pub fn openapi_final_handler<S>() -> HttpMidlewareFnFut<S>
+    where S: TcpSocket
+{
+    HttpMidlewareFnFut::new(|ctx| {
+        openapi_handler_fn(ctx)
+    })
 }

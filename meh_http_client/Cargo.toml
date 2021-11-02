@@ -12,3 +12,7 @@ futures = { version = "0.3.15", default-features = false }
 httparse = { version = "1.5.1", default-features = false }
 serde = { version = "1", default-features = false, features = ["alloc"] }
 serde_json = { verison = "1", default-features = false, features = ["alloc"] }
+
+[features]
+default = ["std"]
+std = ["meh_http_common/std"]
