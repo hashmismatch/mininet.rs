@@ -17,7 +17,7 @@ use meh_http_common::{
     resp::HttpResponseWriter,
     stack::{TcpError, TcpListen, TcpSocket},
 };
-use slog::{error, info, o, Logger};
+use slog::{Logger, debug, error, info, o};
 
 #[derive(Debug, Copy, Clone)]
 pub enum HttpServerError {
@@ -50,7 +50,7 @@ where
                 id += 1;
 
                 let http_parse = parse(&logger, &mut socket);
-                let timeout = Duration::from_secs(10);
+                //let timeout = Duration::from_secs(10);
 
                 match http_parse.await {
                     Ok(req) => {
@@ -168,16 +168,16 @@ pub async fn parse<S>(logger: &Logger, socket: &mut S) -> Result<HttpServerReque
 where
     S: TcpSocket,
 {
-    let mut recv = vec![];
+    let mut recv_header = vec![];
     loop {
-        let mut buf = [0; 128];
+        let mut buf = [0; 128];        
         match socket.read(&mut buf).await {
             Ok(d) if d == 0 => {
                 error!(logger, "Socket closed message received?");
                 return Err(HttpServerError::Unknown);
             }
             Ok(b) => {
-                recv.extend(&buf[0..b]);
+                recv_header.extend(&buf[0..b]);
             }
             Err(e) => {
                 error!(logger, "Network error during parsing: {:?}", e);
@@ -188,7 +188,7 @@ where
         let mut headers_buffer = [httparse::EMPTY_HEADER; 60];
 
         let mut r = httparse::Request::new(&mut headers_buffer);
-        let n = match r.parse(recv.as_slice()) {
+        let n = match r.parse(recv_header.as_slice()) {
             Ok(httparse::Status::Complete(size)) => size,
             Ok(httparse::Status::Partial) => {
                 continue;
@@ -198,12 +198,51 @@ where
                 return Err(HttpServerError::Unknown);
             }
         };
-        let body = &recv[n..];
+
+        let method = r.method.map(|m| m.to_string());
+        let path = r.path.map(|p| p.to_string());
+
+        let body_size = headers_buffer.iter()
+            .filter(|h| h.name == "Content-Length")
+            .flat_map(|h| core::str::from_utf8(h.value))
+            .flat_map(|v| v.parse::<usize>())
+            .next();
+
+        let mut body = recv_header[n..].to_vec();
+
+        // read in the remaining body, if any
+        if let Some(body_size) = body_size {
+            debug!(logger, "Request body size: {}", body_size);
+            let mut remaining = body_size - body.len(); // of by one?
+
+            loop {
+                let b = remaining.min(buf.len());
+                match socket.read(&mut buf[0..b]).await {
+                    Ok(d) if d == 0 => {
+                        error!(logger, "Socket closed message received?");
+                        return Err(HttpServerError::Unknown);
+                    }
+                    Ok(b) => {
+                        body.extend(&buf[0..b]);
+                        remaining -= b;
+                    }
+                    Err(e) => {
+                        error!(logger, "Network error during body receive: {:?}", e);
+                        return Err(HttpServerError::Unknown);
+                    }
+                }
+                    
+                if remaining == 0 {
+                    debug!(logger, "Whole body received.");
+                    break;
+                }
+            }
+        }        
 
         let req = HttpServerRequest {
-            method: r.method.map(|m| m.to_string()),
-            path: r.path.map(|p| p.to_string()),
-            body: body.to_vec(),
+            method,
+            path,
+            body,
             headers: headers_buffer
                 .iter()
                 .filter(|&h| *h != httparse::EMPTY_HEADER)
