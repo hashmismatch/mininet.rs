@@ -157,6 +157,15 @@ async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRest
                             if let Ok(body) = core::str::from_utf8(&ctx.request.body) {
                                 debug!(ctx.logger, "Body as a string: {body}", body=body);
                             }
+
+                            let msg = format!("{:?}", e);
+                            let error = json!({
+                                "error": msg
+                            });
+                            let body = serde_json::to_string_pretty(&error).unwrap();
+
+                            let r = ctx.response(HttpStatusCodes::BadRequest, Some("application/json".into()), Some(&body)).await?;
+                            return Ok(r.into());
                         }
                     }
                 },

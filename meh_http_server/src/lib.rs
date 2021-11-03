@@ -12,11 +12,7 @@ use alloc::{
 };
 use async_trait::async_trait;
 use futures::Future;
-use meh_http_common::{
-    req::{HttpServerHeader, HttpServerRequest},
-    resp::HttpResponseWriter,
-    stack::{TcpError, TcpListen, TcpSocket},
-};
+use meh_http_common::{req::{HttpServerHeader, HttpServerRequest}, resp::HttpResponseWriter, stack::{SystemEnvironment, TcpError, TcpListen, TcpSocket, with_timeout}};
 use slog::{Logger, debug, error, info, o};
 
 #[derive(Debug, Copy, Clone)]
@@ -31,11 +27,12 @@ impl From<TcpError> for HttpServerError {
     }
 }
 
-pub async fn http_server<L, H, Fut>(logger: &Logger, mut listen: L, handler: H)
+pub async fn http_server<L, H, Fut, E>(logger: &Logger, env: E, mut listen: L, handler: H, request_timeout: Option<Duration>)
 where
     H: Fn(HttpContext<L::TcpSocket>) -> Fut,
     Fut: Future<Output = ()>,
     L: TcpListen,
+    E: SystemEnvironment
 {
     let logger = logger.new(o!("ctx" => "http_server"));
 
@@ -49,49 +46,38 @@ where
                 let logger = logger.new(o!("request_id" => id));
                 id += 1;
 
-                let http_parse = parse(&logger, &mut socket);
-                //let timeout = Duration::from_secs(10);
+                let handle_request = async {
+                    let http_parse = parse(&logger, &mut socket);
 
-                match http_parse.await {
-                    Ok(req) => {
-                        info!(logger, "HTTP request: {:#?}", req);
+                    match http_parse.await {
+                        Ok(req) => {
+                            info!(logger, "HTTP request: {:#?}", req);
 
-                        let ctx = HttpContext {
-                            logger: logger.clone(),
-                            request: req,
-                            socket,
-                        };
-                        handler(ctx).await;
+                            let ctx = HttpContext {
+                                logger: logger.clone(),
+                                request: req,
+                                socket,
+                            };
+                            handler(ctx).await;
 
-                        info!(logger, "Request handler finished.");
+                            info!(logger, "Request handler finished.");
+                        }
+                        Err(e) => {
+                            error!(logger, "Failed to parse the requst: {:?}", e);
+                        }
                     }
-                    Err(e) => {
-                        error!(logger, "Failed to parse the requst: {:?}", e);
+                };
+
+                if let Some(t) = request_timeout {
+                    match with_timeout(&env, handle_request, t).await {
+                        Ok(_) => (),
+                        Err(_) => {
+                            error!(logger, "The incoming request timed out after {} seconds.", t.as_secs());
+                        }
                     }
+                } else {
+                    handle_request.await;
                 }
-
-                /*
-                match with_timeout(&self.env, http_parse, timeout).await {
-                    Ok(Ok(req)) => {
-                        info!(logger, "HTTP request: {:#?}", req);
-
-                        let ctx = HttpContext {
-                            logger: logger.clone(),
-                            request: req,
-                            socket
-                        };
-                        handler(ctx).await;
-
-                        info!(logger, "Request handler finished.");
-                    },
-                    Ok(Err(e)) => {
-                        error!(logger, "Failed to parse the requst: {:?}", e);
-                    },
-                    Err(_) => {
-                        error!(logger, "The incoming request timed out after {} seconds.", timeout.as_secs());
-                    }
-                }
-                */
             }
             Err(_) => {
                 error!(logger, "Listen socket stopped, shutting down.");
@@ -170,7 +156,8 @@ where
 {
     let mut recv_header = vec![];
     loop {
-        let mut buf = [0; 128];        
+        let mut buf = [0; 64];        
+        debug!(logger, "Reading header data");
         let incomplete = match socket.read(&mut buf).await {
             Ok(d) if d == 0 => {
                 error!(logger, "Socket closed message received?");
@@ -178,6 +165,7 @@ where
             }
             Ok(b) => {
                 recv_header.extend(&buf[0..b]);
+                debug!(logger, "Received {} bytes of header data", b);
             
                 b < buf.len()
             }
@@ -229,6 +217,7 @@ where
                 }
                 
                 let b = remaining.min(buf.len());
+                debug!(logger, "Reading {} bytes of additional body data", b);
                 match socket.read(&mut buf[0..b]).await {
                     Ok(d) if d == 0 => {
                         error!(logger, "Socket closed message received?");

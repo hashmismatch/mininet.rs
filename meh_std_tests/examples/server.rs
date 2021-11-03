@@ -1,7 +1,10 @@
+use std::time::Duration;
+
 use meh_http_common::std::StdTcpStack;
 use meh_http_common::stack::TcpStack;
 use meh_http_common::stack::TcpError;
 use meh_http_client::http_get;
+use meh_std_tests::StdEnv;
 use slog::{o, Drain, info};
 use meh_http_server::http_server;
 use meh_http_common::resp::HttpResponseWriter;
@@ -28,7 +31,9 @@ fn main() -> Result<(), TcpError> {
             ()
         }
 
-        http_server(&logger, listener, handle_request).await;
+        let env = StdEnv;
+
+        http_server(&logger, env, listener, handle_request, Some(Duration::from_secs(10))).await;
 
         Ok(())
     };

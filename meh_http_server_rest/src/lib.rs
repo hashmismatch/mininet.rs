@@ -181,19 +181,6 @@ where
     }
 }
 
-/*
-impl<A, S> HttpMidlewareChain<A, HttpMiddlewareNull<S>, S>
-    where S: TcpSocket, A: HttpMiddleware<Socket=S>
-{
-    pub fn new(a: A) -> Self {
-        HttpMidlewareChain {
-            a,
-            b: HttpMiddlewareNull(PhantomData::default()),
-            _socket: PhantomData::default()
-        }
-    }
-}
-*/
 
 #[derive(Default)]
 pub struct HttpMiddlewareNull<S>(PhantomData<S>);
@@ -340,25 +327,6 @@ where
 {
     fn from(v: HttpResponseBuilder<S>) -> Self {
         Self::Pass(v)
-    }
-}
-
-pub async fn rest_handler<S>(ctx: HttpContext<S>)
-where
-    S: TcpSocket,
-{
-    match ctx.request.path.as_deref() {
-        Some("/") | None => {
-            ctx.http_ok("text/html", "<h1>Root?</h1>").await;
-        }
-        _ => {
-            ctx.http_reply(
-                HttpStatusCodes::NotFound.into(),
-                "text/html",
-                "<h1>Not Found!</h1>",
-            )
-            .await;
-        }
     }
 }
 

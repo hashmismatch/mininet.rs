@@ -1,9 +1,12 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use embedded_nal::IpAddr;
 
 #[derive(Debug, Copy, Clone)]
 pub enum TcpError {
     Closed,
+    Timeout,
     Unknown
 }
 
@@ -30,4 +33,26 @@ pub trait TcpStack {
     async fn create_socket_listener(&mut self, addr: crate::addr::SocketAddr) -> Result<Self::TcpListener, TcpError>;
     async fn create_socket_connected(&mut self, addr: crate::addr::SocketAddr) -> Result<Self::TcpSocket, TcpError>;
     async fn get_socket_address(&self, host_and_port: &str) -> Result<crate::addr::SocketAddr, TcpError>;
+}
+
+
+
+pub trait SystemEnvironment: Clone {
+    type Timeout: core::future::Future<Output=()> + Unpin + Send;
+    
+    fn timeout(&self, timeout: Duration) -> Self::Timeout;
+}
+
+
+pub async fn with_timeout<E, Fut, FutOut>(env: &E, future: Fut, timeout: Duration) -> Result<FutOut, TcpError>
+    where 
+        E: SystemEnvironment,
+        Fut: core::future::Future<Output=FutOut>
+{
+    let timeout = env.timeout(timeout);
+    let future = Box::pin(future);
+    match futures::future::select(future, timeout).await {
+        futures::future::Either::Left((f, _)) => Ok(f),
+        futures::future::Either::Right(_) => Err(TcpError::Timeout)
+    }
 }

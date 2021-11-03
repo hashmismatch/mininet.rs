@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use meh_http_client::http_get;
 use meh_http_common::resp::HttpResponseWriter;
@@ -15,8 +16,9 @@ use meh_http_server_rest::quick_rest::enable_open_api;
 use meh_http_server_rest::quick_rest::openapi_final_handler;
 use meh_http_server_rest::quick_rest::quick_rest_value;
 use meh_http_server_rest::quick_rest::quick_rest_value_with_openapi;
-use meh_http_server_rest::{quick_rest::QuickRestValue, rest_handler};
+use meh_http_server_rest::{quick_rest::QuickRestValue};
 use meh_http_server_rest::{HttpMiddleware, HttpMidlewareChain};
+use meh_std_tests::StdEnv;
 use slog::{info, o, Drain};
 
 fn main() -> Result<(), TcpError> {
@@ -96,11 +98,12 @@ fn main() -> Result<(), TcpError> {
             h.process(ctx).await;
         }
 
+        let env = StdEnv;
+
         let num_value = num_value.clone();
-        http_server(&logger, listener, |ctx| {
+        http_server(&logger, env, listener, |ctx| {
             handle_request(ctx, num_value.clone(), str_value.clone())
-        })
-        .await;
+        }, Some(Duration::from_secs(10))).await;
 
         Ok(())
     };
