@@ -206,7 +206,7 @@ where
     type Socket = S;
 
     async fn handle(self, ctx: HttpResponseBuilder<S>) -> HandlerResult<S> {
-        ctx.into()
+        Ok(ctx.into())
     }
 }
 
@@ -220,10 +220,10 @@ where
     type Socket = S;
 
     async fn handle(self, ctx: HttpResponseBuilder<S>) -> HandlerResult<S> {
-        let res_a = self.a.handle(ctx).await;
+        let res_a = self.a.handle(ctx).await?;
         match res_a {
-            HandlerResult::Pass(ctx) => self.b.handle(ctx).await,
-            _ => res_a,
+            HandlerResultOk::Pass(ctx) => self.b.handle(ctx).await,
+            _ => Ok(res_a),
         }
     }
 }
@@ -315,25 +315,17 @@ impl From<TcpError> for RestError {
     }
 }
 
-pub enum HandlerResult<S>
+pub type HandlerResult<S> = Result<HandlerResultOk<S>, RestError>;
+
+pub enum HandlerResultOk<S>
 where
     S: TcpSocket,
 {
     Complete(HttpReponseComplete),
-    Error(RestError),
     Pass(HttpResponseBuilder<S>),
 }
 
-impl<S> From<RestError> for HandlerResult<S>
-where
-    S: TcpSocket,
-{
-    fn from(v: RestError) -> Self {
-        Self::Error(v)
-    }
-}
-
-impl<S> From<HttpReponseComplete> for HandlerResult<S>
+impl<S> From<HttpReponseComplete> for HandlerResultOk<S>
 where
     S: TcpSocket,
 {
@@ -342,7 +334,7 @@ where
     }
 }
 
-impl<S> From<HttpResponseBuilder<S>> for HandlerResult<S>
+impl<S> From<HttpResponseBuilder<S>> for HandlerResultOk<S>
 where
     S: TcpSocket,
 {
@@ -379,7 +371,7 @@ where
             name: "Access-Control-Allow-Origin".into(),
             value: "*".into(),
         });
-        ctx.into()
+        Ok(ctx.into())
     })
 }
 
@@ -394,13 +386,10 @@ where
 
     warn!(ctx.logger, "404 not found!");
 
-    match ctx
+    let r = ctx
         .response(HttpStatusCodes::NotFound, "text/html".into(), Some(&html))
-        .await
-    {
-        Ok(c) => { c.into() },
-        Err(e) => e.into(),
-    }
+        .await?;
+    Ok(r.into())
 }
 
 pub fn not_found<S>() -> HttpMidlewareFnFut<S>

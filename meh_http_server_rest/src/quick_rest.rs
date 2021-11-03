@@ -17,7 +17,8 @@ struct OpenApiContext {
 
 struct OpenApiGetter {
     id: Cow<'static, str>,
-    getter: Box<dyn FnOnce() -> serde_json::Value + Send + Sync>
+    getter: Box<dyn FnOnce() -> serde_json::Value + Send + Sync>,
+    json_schema_type: Cow<'static, str>
 }
 
 impl Default for OpenApiContext {
@@ -38,7 +39,7 @@ pub fn enable_open_api<S>() -> HttpMidlewareFn<S>
         v.enabled = true;
         v.is_openapi_request = is_openapi_request;
 
-        ctx.into()
+        Ok(ctx.into())
     })
 }
 
@@ -100,7 +101,7 @@ impl<T> QuickRestValue<T>
 
 async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRestValue<T>) -> HandlerResult<S>
     where S: TcpSocket,
-          T: Serialize + DeserializeOwned + Send + core::fmt::Debug + 'static
+          T: OpenApiType
 {
     let p = format!("/{}", v.id);
     if ctx.request.path == Some(p) {
@@ -115,11 +116,8 @@ async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRest
             });
             ctx.additional_headers.push(HttpServerHeader { name: "Access-Control-Allow-Methods".into(), value: "OPTIONS, GET, POST".into() });
             ctx.additional_headers.push(HttpServerHeader { name: "Access-Control-Allow-Headers".into(), value: "*".into() });
-            let r = ctx.response(HttpStatusCodes::NoContent, None, None).await;
-            return match r {
-                Ok(c) => c.into(),
-                Err(e) => e.into()
-            };
+            let r = ctx.response(HttpStatusCodes::NoContent, None, None).await?;
+            return Ok(r.into());
         }
 
         if let Some(getter) = v.get {
@@ -133,13 +131,10 @@ async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRest
                     let json = serde_json::to_string_pretty(&dto);
                     if let Ok(json) = json {
                         debug!(l, "Replying with the JSON value. Current value, as debug format: {:?}", dto.value);
-                        let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await;
-                        return match r {
-                            Ok(c) => c.into(),
-                            Err(e) => e.into()
-                        };
+                        let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await?;
+                        return Ok(r.into());
                     } else {
-                        return (RestError::Unknown).into();
+                        return Err(RestError::Unknown);
                     }
                 }
                 _ => ()
@@ -154,11 +149,8 @@ async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRest
                         Ok(dto) => {
                             debug!(l, "Set the new value. New value, as debug format: {:?}", dto.value);
                             (setter)(dto.value);
-                            let r = ctx.response(HttpStatusCodes::NoContent, None, None).await;
-                            return match r {
-                                Ok(c) => c.into(),
-                                Err(e) => e.into()
-                            };
+                            let r = ctx.response(HttpStatusCodes::NoContent, None, None).await?;
+                            return Ok(r.into());
                         },
                         Err(e) => {
                             warn!(ctx.logger, "Failed to deserialize the body: {:?}", e);
@@ -178,19 +170,20 @@ async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRest
                 getter: Box::new(|| {
                     let val = (getter)();
                     serde_json::to_value(val).unwrap()
-                })
+                }),
+                json_schema_type: T::json_schema_type()
             };
             ctx.extras.get_mut::<OpenApiContext>().combined_getters.push(g);
         }
     }
 
-    ctx.into()
+    Ok(ctx.into())
 }
 
 
 pub fn quick_rest_value<S, T>(q: QuickRestValue<T>) -> HttpMidlewareFnFut<S>
     where S: TcpSocket,
-          T: Serialize + Send + DeserializeOwned + 'static + core::fmt::Debug
+          T: OpenApiType
 {
     HttpMidlewareFnFut::new(|ctx| {
         quick_rest_value_fn(ctx, q)
@@ -281,37 +274,10 @@ async fn quick_rest_value_openapi_fn<S, T>(mut ctx: HttpResponseBuilder<S>, id: 
 
             let p: Cow<str> = format!("/{}", id).into();
             openapi.paths.insert(p, Path { methods });
-            
-            /*
-            let o = OpenApi {
-                openapi_version: "3.0.0".into(),
-                info: Info {
-                    title: "Quick".into(),
-                    description: "API".into(),
-                    version: "0.1.0".into()
-                },
-                servers: vec![
-                    Server {
-                        description: "here".into(),
-                        url: "http://localhost:8080".into()
-                    }
-                ],
-                paths
-            };
-
-            let json = serde_json::to_string_pretty(&o);
-            if let Ok(json) = json {
-                let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await;
-                return match r {
-                    Ok(c) => c.into(),
-                    Err(e) => e.into()
-                };
-            }
-            */
         };
     }
 
-    ctx.into()
+    Ok(ctx.into())
 }
 
 pub fn quick_rest_value_with_openapi<S, T>(q: QuickRestValue<T>) -> HttpMidlewareChain<HttpMidlewareFnFut<S>, HttpMidlewareFnFut<S>, S>
@@ -339,6 +305,48 @@ async fn openapi_handler_fn<S>(mut ctx: HttpResponseBuilder<S>) -> HandlerResult
         let mut paths = HashMap::new();
         std::mem::swap(&mut paths, &mut openapi.paths);
 
+        // create the all endpoint
+        {
+            let all_properties = openapi.combined_getters
+                .iter()
+                .map(|g| {
+                    let id = g.id.to_string();
+                    let ty = g.json_schema_type.to_string();
+
+                    (id, serde_json::json!({ "type": ty }))
+                }).collect::<serde_json::Map<String, Value>>();
+
+                let all_schema = json!(
+                {
+                    "type": "object",
+                    "properties": 
+                        all_properties
+                    
+                }
+            );
+
+            paths.insert("/all".into(), Path {
+                methods: [
+                    ("get".into(),
+                    PathMethod {
+                        summary: "All values".into(),
+                        description: Some("All of the values in one object".into()),
+                        request_body: None,
+                        responses: [
+                            ("200".into(), Response {
+                                description: "The contents".into(),
+                                content: [
+                                    ("application/json".into(),
+                                    ResponseContent {
+                                        schema: all_schema
+                                    })].into_iter().collect()
+                            })].into_iter().collect()
+                    }
+                )
+                ].into_iter().collect()
+            });
+        }
+
         let o = OpenApi {
             openapi_version: "3.0.0".into(),
             info: Info {
@@ -357,19 +365,14 @@ async fn openapi_handler_fn<S>(mut ctx: HttpResponseBuilder<S>) -> HandlerResult
 
         let json = serde_json::to_string_pretty(&o);
         if let Ok(json) = json {
-            let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await;
-            return match r {
-                Ok(c) => c.into(),
-                Err(e) => e.into()
-            };
+            let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await?;;
+            return Ok(r.into());
         }
     }
 
 
     // joint request?
     if ctx.request.path.as_deref() == Some("/all") {
-        //let mut obj = json!({});
-        let logger = ctx.logger.clone();
         let mut map = Map::new();
         let c = ctx.extras.get_mut::<OpenApiContext>();
 
@@ -379,15 +382,12 @@ async fn openapi_handler_fn<S>(mut ctx: HttpResponseBuilder<S>) -> HandlerResult
         
         let json = serde_json::to_string_pretty(&Value::Object(map));
         if let Ok(json) = json {
-            let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await;
-            return match r {
-                Ok(c) => c.into(),
-                Err(e) => e.into()
-            };
+            let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await?;
+            return Ok(r.into())
         }
     }    
 
-    ctx.into()
+    Ok(ctx.into())
 }
 
 pub fn openapi_final_handler<S>() -> HttpMidlewareFnFut<S>
