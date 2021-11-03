@@ -1,21 +1,28 @@
 use std::{any::TypeId, borrow::Cow, collections::HashMap};
 
 use meh_http_common::{req::HttpServerHeader, resp::HttpStatusCodes, stack::TcpSocket};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use slog::{debug, o, trace, warn};
+use serde::{Deserialize, Serialize, Serializer, de::DeserializeOwned};
+use serde_json::{Map, Value, json};
+use slog::{debug, info, o, trace, warn};
 
-use crate::{HandlerResult, HttpMidlewareChain, HttpMidlewareFn, HttpMidlewareFnFut, HttpResponseBuilder, openapi::{Info, OpenApi, Path, PathMethod, RequestBody, RequestContent, Response, ResponseContent, Server}};
+use crate::{HandlerResult, HttpMidlewareChain, HttpMidlewareFn, HttpMidlewareFnFut, HttpResponseBuilder, RestError, openapi::{Info, OpenApi, Path, PathMethod, RequestBody, RequestContent, Response, ResponseContent, Server}};
 
 
 struct OpenApiContext {
     enabled: bool,
     is_openapi_request: bool,
-    paths: HashMap<Cow<'static, str>, Path>
+    paths: HashMap<Cow<'static, str>, Path>,
+    combined_getters: Vec<OpenApiGetter>
+}
+
+struct OpenApiGetter {
+    id: Cow<'static, str>,
+    getter: Box<dyn FnOnce() -> serde_json::Value + Send + Sync>
 }
 
 impl Default for OpenApiContext {
     fn default() -> Self {
-        Self { enabled: false, is_openapi_request: false, paths: HashMap::new() }
+        Self { enabled: false, is_openapi_request: false, paths: HashMap::new(), combined_getters: vec![] }
     }
 }
 
@@ -48,7 +55,7 @@ pub struct QuickRestValue<T>
 {
     pub api: Cow<'static, str>,
     pub id: Cow<'static, str>,
-    pub get: Option<Box<dyn FnOnce() -> T + Send>>,
+    pub get: Option<Box<dyn FnOnce() -> T + Send + Sync>>,
     pub set: Option<Box<dyn FnOnce(T) -> () + Send>>
 }
 
@@ -56,7 +63,7 @@ impl<T> QuickRestValue<T>
     where T: Serialize + Send + DeserializeOwned + core::fmt::Debug
 {
     pub fn new_getter<G>(api: Cow<'static, str>, id: Cow<'static, str>, getter: G) -> Self
-        where G: FnOnce() -> T + Send + 'static
+        where G: FnOnce() -> T + Send + Sync + 'static
     {
         QuickRestValue {
             api,
@@ -78,7 +85,7 @@ impl<T> QuickRestValue<T>
     }
 
     pub fn new_getter_and_setter<G, S>(api: Cow<'static, str>, id: Cow<'static, str>, getter: G, setter: S) -> Self
-        where G: FnOnce() -> T + Send + 'static,
+        where G: FnOnce() -> T + Send + Sync + 'static,
               S: FnOnce(T) -> () + Send + 'static
     {
         QuickRestValue {
@@ -93,15 +100,15 @@ impl<T> QuickRestValue<T>
 
 async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRestValue<T>) -> HandlerResult<S>
     where S: TcpSocket,
-          T: Serialize + DeserializeOwned + Send + core::fmt::Debug
+          T: Serialize + DeserializeOwned + Send + core::fmt::Debug + 'static
 {
     let p = format!("/{}", v.id);
     if ctx.request.path == Some(p) {
         let l = ctx.logger.new(o!("id" => v.id.to_string()));
         debug!(l, "Matched with Quick REST.");
-        let method = ctx.request.method.as_ref().map(|s| s.as_str());
+        let method = ctx.request.method.as_ref().cloned();
 
-        if let Some("OPTIONS") = method {
+        if let Some("OPTIONS") = method.as_deref() {
             ctx.additional_headers.push(HttpServerHeader {
                 name: "Allow".into(),
                 value: "OPTIONS, GET, POST".into(),
@@ -116,7 +123,7 @@ async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRest
         }
 
         if let Some(getter) = v.get {
-            match method {
+            match method.as_deref() {
                 Some("GET") => {
                     let value = (getter)();
                     let dto = ValueDto {
@@ -131,6 +138,8 @@ async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRest
                             Ok(c) => c.into(),
                             Err(e) => e.into()
                         };
+                    } else {
+                        return (RestError::Unknown).into();
                     }
                 }
                 _ => ()
@@ -138,7 +147,7 @@ async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRest
         }
 
         if let Some(setter) = v.set {
-            match method {
+            match method.as_deref() {
                 Some("POST" | "PUT") => {
                     let dto = serde_json::from_slice::<ValueDto<T>>(&ctx.request.body);
                     match dto {
@@ -161,6 +170,17 @@ async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRest
                 },
                 _ => ()
             }
+        }
+    } else {        
+        if let Some(getter) = v.get {
+            let g = OpenApiGetter {
+                id: v.id,
+                getter: Box::new(|| {
+                    let val = (getter)();
+                    serde_json::to_value(val).unwrap()
+                })
+            };
+            ctx.extras.get_mut::<OpenApiContext>().combined_getters.push(g);
         }
     }
 
@@ -344,6 +364,28 @@ async fn openapi_handler_fn<S>(mut ctx: HttpResponseBuilder<S>) -> HandlerResult
             };
         }
     }
+
+
+    // joint request?
+    if ctx.request.path.as_deref() == Some("/all") {
+        //let mut obj = json!({});
+        let logger = ctx.logger.clone();
+        let mut map = Map::new();
+        let c = ctx.extras.get_mut::<OpenApiContext>();
+
+        for g in c.combined_getters.drain(..) {
+            map.insert(g.id.into_owned(), (g.getter)());
+        }
+        
+        let json = serde_json::to_string_pretty(&Value::Object(map));
+        if let Ok(json) = json {
+            let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await;
+            return match r {
+                Ok(c) => c.into(),
+                Err(e) => e.into()
+            };
+        }
+    }    
 
     ctx.into()
 }

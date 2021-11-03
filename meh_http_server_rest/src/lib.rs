@@ -306,6 +306,7 @@ where
 #[derive(Debug)]
 pub enum RestError {
     TcpError(TcpError),
+    Unknown
 }
 
 impl From<TcpError> for RestError {
