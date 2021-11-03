@@ -171,18 +171,24 @@ where
     let mut recv_header = vec![];
     loop {
         let mut buf = [0; 128];        
-        match socket.read(&mut buf).await {
+        let incomplete = match socket.read(&mut buf).await {
             Ok(d) if d == 0 => {
                 error!(logger, "Socket closed message received?");
                 return Err(HttpServerError::Unknown);
             }
             Ok(b) => {
                 recv_header.extend(&buf[0..b]);
+            
+                b < buf.len()
             }
             Err(e) => {
                 error!(logger, "Network error during parsing: {:?}", e);
                 return Err(HttpServerError::Unknown);
             }
+        };
+
+        if incomplete {
+            debug!(logger, "Incomplete last read?");
         }
 
         let mut headers_buffer = [httparse::EMPTY_HEADER; 60];
@@ -191,6 +197,7 @@ where
         let n = match r.parse(recv_header.as_slice()) {
             Ok(httparse::Status::Complete(size)) => size,
             Ok(httparse::Status::Partial) => {
+                debug!(logger, "Partial headers, getting more data");
                 continue;
             }
             Err(e) => {
@@ -216,6 +223,11 @@ where
             let mut remaining = body_size - body.len(); // of by one?
 
             loop {
+                if remaining == 0 {
+                    debug!(logger, "Whole body received.");
+                    break;
+                }
+                
                 let b = remaining.min(buf.len());
                 match socket.read(&mut buf[0..b]).await {
                     Ok(d) if d == 0 => {
@@ -230,11 +242,6 @@ where
                         error!(logger, "Network error during body receive: {:?}", e);
                         return Err(HttpServerError::Unknown);
                     }
-                }
-                    
-                if remaining == 0 {
-                    debug!(logger, "Whole body received.");
-                    break;
                 }
             }
         }        
