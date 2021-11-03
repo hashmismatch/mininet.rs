@@ -1,5 +1,6 @@
 pub mod openapi;
 pub mod quick_rest;
+pub mod extras;
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -17,6 +18,8 @@ use meh_http_common::stack::{TcpError, TcpSocket};
 use meh_http_server::HttpContext;
 use slog::warn;
 
+use crate::extras::Extras;
+
 pub struct HttpResponseBuilder<S>
 where
     S: TcpSocket,
@@ -24,41 +27,6 @@ where
     pub additional_headers: Vec<HttpServerHeader>,
     pub extras: Extras,
     ctx: HttpContext<S>,
-}
-
-#[derive(Default)]
-pub struct Extras {
-    extras: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
-}
-impl Extras {
-    pub fn get<'a, T: 'static>(&'a mut self) -> &'a T
-    where
-        T: Default + Any + Send + Sync + 'static,
-    {
-        let ty = TypeId::of::<T>();
-        let v = self.extras
-            .entry(ty)
-            .or_insert_with(|| Box::new(T::default()));
-        (&**v as &dyn Any).downcast_ref::<T>().unwrap()
-    }
-
-    pub fn get_mut<'a, T>(&'a mut self) -> &'a mut T
-    where
-        T: Default + Any + Send + Sync + 'static,
-    {
-        let ty = TypeId::of::<T>();
-        let v = self.extras
-            .entry(ty)
-            .or_insert_with(|| Box::new(T::default()));
-        (&mut **v as &mut dyn Any).downcast_mut::<T>().unwrap()
-    }
-}
-
-#[test]
-fn test_extras() {
-    let mut e = Extras::default();
-    let v = e.get_mut::<u32>();
-    assert_eq!(*v, 0);
 }
 
 impl<S> Deref for HttpResponseBuilder<S>
