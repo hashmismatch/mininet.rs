@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::{Map, Value, json};
 use slog::{debug, info, o, trace, warn};
 
-use crate::{HandlerResult, HttpMidlewareChain, HttpMidlewareFn, HttpMidlewareFnFut, HttpResponseBuilder, RestError, openapi::{Info, OpenApi, Path, PathMethod, RequestBody, RequestContent, Response, ResponseContent, Server}};
+use crate::{HandlerResult, RestError, middleware::{HttpMidlewareChain, HttpMidlewareFn, HttpMidlewareFnFut}, openapi::{Info, OpenApi, Path, PathMethod, RequestBody, RequestContent, Response, ResponseContent, Server}, response_builder::HttpResponseBuilder};
 
 
 struct OpenApiContext {

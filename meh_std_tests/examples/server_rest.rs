@@ -10,14 +10,14 @@ use meh_http_common::std::StdTcpSocket;
 use meh_http_common::std::StdTcpStack;
 use meh_http_server::http_server;
 use meh_http_server::HttpContext;
-use meh_http_server_rest::allow_cors_all;
-use meh_http_server_rest::not_found;
+use meh_http_server_rest::helpers::allow_cors_all;
+use meh_http_server_rest::helpers::not_found;
+use meh_http_server_rest::middleware::HttpMiddleware;
 use meh_http_server_rest::quick_rest::enable_open_api;
 use meh_http_server_rest::quick_rest::openapi_final_handler;
 use meh_http_server_rest::quick_rest::quick_rest_value;
 use meh_http_server_rest::quick_rest::quick_rest_value_with_openapi;
 use meh_http_server_rest::{quick_rest::QuickRestValue};
-use meh_http_server_rest::{HttpMiddleware, HttpMidlewareChain};
 use meh_std_tests::StdEnv;
 use slog::{info, o, Drain};
 
