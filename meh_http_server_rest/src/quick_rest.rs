@@ -25,7 +25,7 @@ struct OpenApiContextApi {
 struct OpenApiGetter {
     id: Cow<'static, str>,
     getter: Box<dyn FnOnce() -> RestResult<serde_json::Value> + Send + Sync>,
-    json_schema_type: Cow<'static, str>
+    json_schema_type_def: serde_json::Value
 }
 
 pub fn enable_open_api<S>(info: Info, servers: Vec<Server>) -> HttpMidlewareFn<S>
@@ -44,7 +44,7 @@ pub fn enable_open_api<S>(info: Info, servers: Vec<Server>) -> HttpMidlewareFn<S
             apis: HashMap::new()
         };
 
-        let v = ctx.extras.insert(open_api);
+        ctx.extras.insert(open_api);
 
         Ok(ctx.into())
     })
@@ -176,7 +176,7 @@ async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRest
                     let val = (getter)()?;
                     Ok(serde_json::to_value(val)?)
                 }),
-                json_schema_type: T::json_schema_type()
+                json_schema_type_def: T::json_schema_definition()
             };
 
             if let Some(openapi_ctx) = ctx.extras.get_mut::<OpenApiContext>() {
@@ -208,18 +208,26 @@ pub fn quick_rest_value<S, T>(q: QuickRestValue<T>) -> HttpMidlewareFnFut<S>
 }
 
 pub trait OpenApiType: Serialize + DeserializeOwned + Send + core::fmt::Debug + 'static {
-    fn json_schema_type() -> Cow<'static, str>;
+    fn json_schema_definition() -> serde_json::Value;
 }
 
 impl OpenApiType for usize {
-    fn json_schema_type() -> Cow<'static, str> {
-        "integer".into()
+    fn json_schema_definition() -> serde_json::Value {
+        let min = usize::MIN;
+        let max = usize::MAX;
+        json!({
+            "type": "integer",
+            "minimum": min,
+            "maximum": max
+        })
     }
 }
 
 impl OpenApiType for String {
-    fn json_schema_type() -> Cow<'static, str> {
-        "string".into()
+    fn json_schema_definition() -> serde_json::Value {
+        json!({
+            "type": "string"
+        })
     }
 }
 
@@ -237,15 +245,13 @@ async fn quick_rest_value_openapi_fn<S, T>(mut ctx: HttpResponseBuilder<S>, api:
 
     if openapi.enabled && openapi.is_openapi_request {
         {
-            let ty = T::json_schema_type();
+            let ty_def = T::json_schema_definition();
 
             let schema = serde_json::json!(
                 {
                     "type": "object",
                     "properties": {
-                        "value": {
-                            "type": ty
-                        }
+                        "value": ty_def
                     }
                 }
             );
@@ -332,7 +338,6 @@ async fn openapi_handler_fn<S>(mut ctx: HttpResponseBuilder<S>) -> HandlerResult
     where S: TcpSocket
 {
     let req_path = ctx.request.path.clone();
-    let logger = ctx.logger.clone();
 
     let openapi = ctx.extras.get_mut::<OpenApiContext>();
     let openapi = if let Some(openapi) = openapi {
@@ -353,9 +358,7 @@ async fn openapi_handler_fn<S>(mut ctx: HttpResponseBuilder<S>) -> HandlerResult
                 .iter()
                 .map(|g| {
                     let id = g.id.to_string();
-                    let ty = g.json_schema_type.to_string();
-
-                    (id, serde_json::json!({ "type": ty }))
+                    (id, g.json_schema_type_def.clone())
                 }).collect::<serde_json::Map<String, Value>>();
 
                 let all_schema = json!(
