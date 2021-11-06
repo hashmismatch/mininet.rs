@@ -340,20 +340,13 @@ async fn openapi_handler_fn<S>(mut ctx: HttpResponseBuilder<S>) -> HandlerResult
     } else {
         return Ok(ctx.into());
     };    
-     
-    warn!(logger, "Hello?");
 
     if openapi.enabled {
 
-        warn!(logger, "Enabled?");
-
         let mut paths = HashMap::new();
-
-        warn!(logger, "api count: {}", openapi.apis.len());
         
         for (api_id, api) in &openapi.apis {
             let api_url = format!("{}", api_id);
-            warn!(logger, "api_url: {}", api_url);
 
             // create the all endpoint        
             let all_properties = api.combined_getters
