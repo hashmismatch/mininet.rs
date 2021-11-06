@@ -12,6 +12,8 @@ use meh_http_server_rest::RestError;
 use meh_http_server_rest::helpers::allow_cors_all;
 use meh_http_server_rest::helpers::not_found;
 use meh_http_server_rest::middleware::HttpMiddleware;
+use meh_http_server_rest::openapi::Info;
+use meh_http_server_rest::openapi::Server;
 use meh_http_server_rest::quick_rest::enable_open_api;
 use meh_http_server_rest::quick_rest::openapi_final_handler;
 use meh_http_server_rest::quick_rest::quick_rest_value_with_openapi;
@@ -40,9 +42,11 @@ fn main() -> Result<(), TcpError> {
         info!(logger, "Listening at http://{}/", addr);
 
         async fn handle_request(ctx: HttpContext<StdTcpSocket>, num_value: Arc<Mutex<usize>>, str_value: Arc<Mutex<String>>) {
+            let api_id = "/simple";
+
             let q = {
                 let v = QuickRestValue::new_getter_and_setter(
-                    "simple".into(),
+                    api_id.into(),
                     "num".into(),
                     {
                         let num_value = num_value.clone();
@@ -68,7 +72,7 @@ fn main() -> Result<(), TcpError> {
 
             let q2 = {
                 let v = QuickRestValue::new_getter_and_setter(
-                    "simple".into(),
+                    api_id.into(),
                     "str".into(),
                     {
                         let str_value = str_value.clone();
@@ -93,7 +97,12 @@ fn main() -> Result<(), TcpError> {
             };
 
             let h = allow_cors_all()
-                .chain(enable_open_api())
+                .chain(enable_open_api(Info { title: "API".into(), description: "yay".into(), version: "0.1.0".into() }, vec![
+                    Server {
+                        url: "http://localhost:8080".into(),
+                        description: "dev".into()
+                    }
+                ]))
                 .chain(q)
                 .chain(q2)
                 .chain(openapi_final_handler())

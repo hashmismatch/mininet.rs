@@ -11,6 +11,13 @@ use crate::{HandlerResult, RestError, RestResult, middleware::{HttpMidlewareChai
 struct OpenApiContext {
     enabled: bool,
     is_openapi_request: bool,
+    info: Info,
+    servers: Vec<Server>,
+    apis: HashMap<Cow<'static, str>, OpenApiContextApi>
+}
+
+struct OpenApiContextApi {
+    path: Cow<'static, str>,
     paths: HashMap<Cow<'static, str>, Path>,
     combined_getters: Vec<OpenApiGetter>
 }
@@ -21,23 +28,23 @@ struct OpenApiGetter {
     json_schema_type: Cow<'static, str>
 }
 
-impl Default for OpenApiContext {
-    fn default() -> Self {
-        Self { enabled: false, is_openapi_request: false, paths: HashMap::new(), combined_getters: vec![] }
-    }
-}
-
-pub fn enable_open_api<S>() -> HttpMidlewareFn<S>
+pub fn enable_open_api<S>(info: Info, servers: Vec<Server>) -> HttpMidlewareFn<S>
     where S: TcpSocket
 {
-    HttpMidlewareFn::new(|mut ctx: HttpResponseBuilder<S>| {        
+    HttpMidlewareFn::new(move |mut ctx: HttpResponseBuilder<S>| {        
         let is_openapi_request = 
             ctx.request.path.as_ref().map(|p| p.ends_with("?openapi")) == Some(true) && 
             ctx.request.method.as_ref().map(|s| s.as_str()) == Some("GET");
 
-        let v = ctx.extras.get_mut::<OpenApiContext>();
-        v.enabled = true;
-        v.is_openapi_request = is_openapi_request;
+        let open_api = OpenApiContext {
+            enabled: true,
+            is_openapi_request,            
+            info: info.clone(),
+            servers: servers.clone(),
+            apis: HashMap::new()
+        };
+
+        let v = ctx.extras.insert(open_api);
 
         Ok(ctx.into())
     })
@@ -103,7 +110,7 @@ async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRest
     where S: TcpSocket,
           T: OpenApiType
 {
-    let p = format!("/{}", v.id);
+    let p = format!("{}/{}", v.api, v.id);
     if ctx.request.path == Some(p) {
         let l = ctx.logger.new(o!("id" => v.id.to_string()));
         debug!(l, "Matched with Quick REST.");
@@ -128,14 +135,10 @@ async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRest
                         value
                     };
 
-                    let json = serde_json::to_string_pretty(&dto);
-                    if let Ok(json) = json {
-                        debug!(l, "Replying with the JSON value. Current value, as debug format: {:?}", dto.value);
-                        let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await?;
-                        return Ok(r.into());
-                    } else {
-                        return Err(RestError::Unknown);
-                    }
+                    let json = serde_json::to_string_pretty(&dto)?;
+                    debug!(l, "Replying with the JSON value. Current value, as debug format: {:?}", dto.value);
+                    let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await?;
+                    return Ok(r.into());
                 }
                 _ => ()
             }
@@ -169,13 +172,25 @@ async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRest
         if let Some(getter) = v.get {
             let g = OpenApiGetter {
                 id: v.id,
-                getter: Box::new(|| {
+                getter: Box::new(move || {
                     let val = (getter)()?;
                     Ok(serde_json::to_value(val)?)
                 }),
                 json_schema_type: T::json_schema_type()
             };
-            ctx.extras.get_mut::<OpenApiContext>().combined_getters.push(g);
+
+            if let Some(openapi_ctx) = ctx.extras.get_mut::<OpenApiContext>() {
+                openapi_ctx.apis
+                    .entry(v.api.clone())
+                    .or_insert_with(|| {
+                        OpenApiContextApi { path: v.api.clone(), paths: HashMap::new(), combined_getters: vec![] }
+                    });
+                openapi_ctx.apis
+                    .entry(v.api.clone())
+                    .and_modify(|e| {
+                        e.combined_getters.push(g);
+                    });
+            }
         }
     }
 
@@ -209,12 +224,17 @@ impl OpenApiType for String {
 }
 
 
-async fn quick_rest_value_openapi_fn<S, T>(mut ctx: HttpResponseBuilder<S>, id: Cow<'static, str>) -> HandlerResult<S>
+async fn quick_rest_value_openapi_fn<S, T>(mut ctx: HttpResponseBuilder<S>, api: Cow<'static, str>, id: Cow<'static, str>) -> HandlerResult<S>
     where S: TcpSocket,
           T: OpenApiType
 {
     let openapi = ctx.extras.get_mut::<OpenApiContext>();
-    
+    let openapi = if let Some(openapi) = openapi {
+        openapi
+    } else {
+        return Ok(ctx.into());
+    };
+
     if openapi.enabled && openapi.is_openapi_request {
         {
             let ty = T::json_schema_type();
@@ -274,8 +294,16 @@ async fn quick_rest_value_openapi_fn<S, T>(mut ctx: HttpResponseBuilder<S>, id: 
                 });
             }
 
-            let p: Cow<str> = format!("/{}", id).into();
-            openapi.paths.insert(p, Path { methods });
+            let p: Cow<str> = format!("{}/{}", api, id).into();
+            openapi.apis.entry(api.clone()).or_insert_with({
+                let api = api.clone();
+                move || {
+                    OpenApiContextApi { path: api.clone().into(), paths: HashMap::new(), combined_getters: vec![] }
+                }
+            });
+            openapi.apis.entry(api.clone()).and_modify(|e| {
+                e.paths.insert(p, Path { methods });
+            });
         };
     }
 
@@ -286,6 +314,7 @@ pub fn quick_rest_value_with_openapi<S, T>(q: QuickRestValue<T>) -> HttpMidlewar
     where S: TcpSocket,
           T: OpenApiType
 {
+    let api = q.api.clone();
     let id = q.id.clone();
 
     let val = HttpMidlewareFnFut::new(|ctx| {
@@ -293,7 +322,7 @@ pub fn quick_rest_value_with_openapi<S, T>(q: QuickRestValue<T>) -> HttpMidlewar
     });
 
     let openapi = HttpMidlewareFnFut::new(move |ctx| {
-        quick_rest_value_openapi_fn::<S, T>(ctx, id)
+        quick_rest_value_openapi_fn::<S, T>(ctx, api, id)
     });
 
     HttpMidlewareChain::new_pair(val, openapi)
@@ -302,14 +331,32 @@ pub fn quick_rest_value_with_openapi<S, T>(q: QuickRestValue<T>) -> HttpMidlewar
 async fn openapi_handler_fn<S>(mut ctx: HttpResponseBuilder<S>) -> HandlerResult<S>
     where S: TcpSocket
 {
-    let openapi = ctx.extras.get_mut::<OpenApiContext>();
-    if openapi.enabled && openapi.is_openapi_request {
-        let mut paths = HashMap::new();
-        std::mem::swap(&mut paths, &mut openapi.paths);
+    let req_path = ctx.request.path.clone();
+    let logger = ctx.logger.clone();
 
-        // create the all endpoint
-        {
-            let all_properties = openapi.combined_getters
+    let openapi = ctx.extras.get_mut::<OpenApiContext>();
+    let openapi = if let Some(openapi) = openapi {
+        openapi
+    } else {
+        return Ok(ctx.into());
+    };    
+     
+    warn!(logger, "Hello?");
+
+    if openapi.enabled {
+
+        warn!(logger, "Enabled?");
+
+        let mut paths = HashMap::new();
+
+        warn!(logger, "api count: {}", openapi.apis.len());
+        
+        for (api_id, api) in &openapi.apis {
+            let api_url = format!("{}", api_id);
+            warn!(logger, "api_url: {}", api_url);
+
+            // create the all endpoint        
+            let all_properties = api.combined_getters
                 .iter()
                 .map(|g| {
                     let id = g.id.to_string();
@@ -327,7 +374,7 @@ async fn openapi_handler_fn<S>(mut ctx: HttpResponseBuilder<S>) -> HandlerResult
                 }
             );
 
-            paths.insert("/all".into(), Path {
+            paths.insert(api_url.into(), Path {
                 methods: [
                     ("get".into(),
                     PathMethod {
@@ -347,43 +394,40 @@ async fn openapi_handler_fn<S>(mut ctx: HttpResponseBuilder<S>) -> HandlerResult
                 )
                 ].into_iter().collect()
             });
-        }
 
-        let o = OpenApi {
-            openapi_version: "3.0.0".into(),
-            info: Info {
-                title: "Quick".into(),
-                description: "API".into(),
-                version: "0.1.0".into()
-            },
-            servers: vec![
-                Server {
-                    description: "here".into(),
-                    url: "http://localhost:8080".into()
-                }
-            ],
-            paths
-        };
-
-        let json = serde_json::to_string_pretty(&o)?;
-        let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await?;
-        return Ok(r.into());
-    }
-
-
-    // joint request?
-    if ctx.request.path.as_deref() == Some("/all") {
-        let mut map = Map::new();
-        let c = ctx.extras.get_mut::<OpenApiContext>();
-
-        for g in c.combined_getters.drain(..) {
-            map.insert(g.id.into_owned(), (g.getter)()?);
+            paths.extend(api.paths.clone());
         }
         
-        let json = serde_json::to_string_pretty(&Value::Object(map))?;
-        let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await?;
-        return Ok(r.into());
-    }    
+        // handle the GET request
+        for (api_id, api) in &mut openapi.apis {
+            let api_url = format!("{}", api_id);
+
+            if req_path.as_deref() == Some(&api_url) {
+                let mut map = Map::new();
+                for g in api.combined_getters.drain(..) {
+                    map.insert(g.id.clone().into_owned(), (g.getter)()?);
+                }
+                
+                let json = serde_json::to_string_pretty(&Value::Object(map))?;
+                let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await?;
+                return Ok(r.into());
+            }
+        }
+        
+        // handle the big openapi request
+        if req_path.as_deref() == Some("/?openapi") {
+            let o = OpenApi {
+                openapi_version: "3.0.0".into(),
+                info: openapi.info.clone(),
+                servers: openapi.servers.clone(),
+                paths
+            };
+    
+            let json = serde_json::to_string_pretty(&o)?;
+            let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await?;
+            return Ok(r.into());
+        }
+    }
 
     Ok(ctx.into())
 }

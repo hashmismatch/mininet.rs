@@ -13,21 +13,31 @@ impl Extras {
         let ty = TypeId::of::<T>();
         
         if let Some(v)  = self.extras.get(&ty) {
-            Some((&**v as &dyn Any).downcast_ref::<T>().unwrap())
+            (&**v as &dyn Any).downcast_ref::<T>()
         } else {
             None
         }
     }
 
-    pub fn get_mut<'a, T>(&'a mut self) -> &'a mut T
-    where
-        T: Default + Any + Send + Sync + 'static,
+    pub fn insert<T>(&mut self, val: T)
+        where
+            T: Any + Send + Sync + 'static
     {
         let ty = TypeId::of::<T>();
-        let v = self.extras
-            .entry(ty)
-            .or_insert_with(|| Box::new(T::default()));
-        (&mut **v as &mut dyn Any).downcast_mut::<T>().unwrap()
+        self.extras.insert(ty, Box::new(val));
+    }
+
+    pub fn get_mut<'a, T>(&'a mut self) -> Option<&'a mut T>
+    where
+        T: Any + Send + Sync + 'static,
+    {
+        let ty = TypeId::of::<T>();
+
+        if let Some(v) = self.extras.get_mut(&ty) {
+            (&mut **v as &mut dyn Any).downcast_mut::<T>()
+        } else {
+            None
+        }
     }
 }
 
@@ -38,8 +48,8 @@ fn test_extras() {
     let v = e.get::<u32>();
     assert_eq!(None, v);
     let v = e.get_mut::<u32>();
-    assert_eq!(*v, 0);
-    *v = 5;
+    assert_eq!(None, v);
+    e.insert(5u32);
     let v = e.get::<u32>();
     assert_eq!(Some(&5), v);
 }
