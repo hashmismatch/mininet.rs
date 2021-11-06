@@ -4,8 +4,10 @@ pub mod middleware;
 pub mod openapi;
 pub mod quick_rest;
 pub mod response_builder;
+pub mod xp;
 
 use std::any::{Any, TypeId};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::future::Future;
@@ -20,10 +22,19 @@ use meh_http_server::HttpContext;
 use response_builder::{HttpReponseComplete, HttpResponseBuilder};
 use slog::warn;
 
+pub type RestResult<T = ()> = Result<T, RestError>;
+
 #[derive(Debug)]
 pub enum RestError {
     TcpError(TcpError),
     Unknown,
+    ErrorMessage(Cow<'static, str>)
+}
+
+impl From<serde_json::Error> for RestError {
+    fn from(e: serde_json::Error) -> Self {
+        Self::ErrorMessage(format!("JSON error: {}", e).into())
+    }
 }
 
 impl From<TcpError> for RestError {
@@ -33,6 +44,13 @@ impl From<TcpError> for RestError {
 }
 
 pub type HandlerResult<S> = Result<HandlerResultOk<S>, RestError>;
+
+pub struct HandlerError<S>
+    where S: TcpSocket
+{
+    pub error: RestError,
+    pub ctx: HttpResponseBuilder<S>
+}
 
 pub enum HandlerResultOk<S>
 where

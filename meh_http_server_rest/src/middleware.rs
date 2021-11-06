@@ -1,11 +1,21 @@
-use std::{marker::PhantomData, pin::Pin};
+use std::{marker::PhantomData, pin::Pin, sync::Arc};
 
 use futures::Future;
-use meh_http_common::stack::TcpSocket;
+use meh_http_common::{resp::HttpStatusCodes, stack::TcpSocket};
 use async_trait::async_trait;
 use meh_http_server::HttpContext;
+use serde_json::json;
 
 use crate::{HandlerResult, HandlerResultOk, extras::Extras, response_builder::HttpResponseBuilder};
+
+
+/*
+pub struct Next<'a, S> where S: TcpSocket {
+    pub(crate) next_middleware: &'a [Arc<dyn HttpMiddleware<Socket=S>>]
+}
+*/
+
+
 
 
 #[async_trait]
@@ -19,7 +29,23 @@ pub trait HttpMiddleware: Send + Sized {
             extras: Extras::default(),
         };
 
-        self.handle(resp_builder).await
+        let res = self.handle(resp_builder).await;
+
+        /*
+        // wrong place for this!
+        if let Err(e) = res {
+            let msg = format!("{:?}", e);
+            let error = json!({
+                "error": msg
+            });
+            let body = serde_json::to_string_pretty(&error).unwrap();
+
+            let r = ctx.response(HttpStatusCodes::BadRequest, Some("application/json".into()), Some(&body)).await?;
+            return Ok(r.into());
+        }
+        */
+
+        res
     }
 
     async fn handle(

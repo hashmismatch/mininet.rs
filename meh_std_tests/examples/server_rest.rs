@@ -2,20 +2,18 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use meh_http_client::http_get;
-use meh_http_common::resp::HttpResponseWriter;
 use meh_http_common::stack::TcpError;
 use meh_http_common::stack::TcpStack;
 use meh_http_common::std::StdTcpSocket;
 use meh_http_common::std::StdTcpStack;
 use meh_http_server::http_server;
 use meh_http_server::HttpContext;
+use meh_http_server_rest::RestError;
 use meh_http_server_rest::helpers::allow_cors_all;
 use meh_http_server_rest::helpers::not_found;
 use meh_http_server_rest::middleware::HttpMiddleware;
 use meh_http_server_rest::quick_rest::enable_open_api;
 use meh_http_server_rest::quick_rest::openapi_final_handler;
-use meh_http_server_rest::quick_rest::quick_rest_value;
 use meh_http_server_rest::quick_rest::quick_rest_value_with_openapi;
 use meh_http_server_rest::{quick_rest::QuickRestValue};
 use meh_std_tests::StdEnv;
@@ -50,15 +48,18 @@ fn main() -> Result<(), TcpError> {
                         let num_value = num_value.clone();
                         move || {
                             if let Ok(n) = num_value.lock() {
-                                *n
+                                Ok(*n)
                             } else {
-                                0
+                                Err(RestError::ErrorMessage("Failed to lock the value.".into()))
                             }
                         }
                     },
                     move |v| {
                         if let Ok(mut n) = num_value.lock() {
                             *n = v;
+                            Ok(())
+                        } else {
+                            Err(RestError::ErrorMessage("Failed to lock the value.".into()))
                         }
                     },
                 );
@@ -73,15 +74,18 @@ fn main() -> Result<(), TcpError> {
                         let str_value = str_value.clone();
                         move || {
                             if let Ok(s) = str_value.lock() {
-                                s.clone()
+                                Ok(s.clone())
                             } else {
-                                "".into()
+                                Err(RestError::ErrorMessage("Failed to lock the value.".into()))
                             }
                         }
                     },
                     move |v| {
                         if let Ok(mut s) = str_value.lock() {
                             *s = v;
+                            Ok(())
+                        } else {
+                            Err(RestError::ErrorMessage("Failed to lock the value.".into()))
                         }
                     },
                 );

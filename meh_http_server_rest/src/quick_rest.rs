@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::{Map, Value, json};
 use slog::{debug, info, o, trace, warn};
 
-use crate::{HandlerResult, RestError, middleware::{HttpMidlewareChain, HttpMidlewareFn, HttpMidlewareFnFut}, openapi::{Info, OpenApi, Path, PathMethod, RequestBody, RequestContent, Response, ResponseContent, Server}, response_builder::HttpResponseBuilder};
+use crate::{HandlerResult, RestError, RestResult, middleware::{HttpMidlewareChain, HttpMidlewareFn, HttpMidlewareFnFut}, openapi::{Info, OpenApi, Path, PathMethod, RequestBody, RequestContent, Response, ResponseContent, Server}, response_builder::HttpResponseBuilder};
 
 
 struct OpenApiContext {
@@ -17,7 +17,7 @@ struct OpenApiContext {
 
 struct OpenApiGetter {
     id: Cow<'static, str>,
-    getter: Box<dyn FnOnce() -> serde_json::Value + Send + Sync>,
+    getter: Box<dyn FnOnce() -> RestResult<serde_json::Value> + Send + Sync>,
     json_schema_type: Cow<'static, str>
 }
 
@@ -56,15 +56,15 @@ pub struct QuickRestValue<T>
 {
     pub api: Cow<'static, str>,
     pub id: Cow<'static, str>,
-    pub get: Option<Box<dyn FnOnce() -> T + Send + Sync>>,
-    pub set: Option<Box<dyn FnOnce(T) -> () + Send>>
+    pub get: Option<Box<dyn FnOnce() -> RestResult<T> + Send + Sync>>,
+    pub set: Option<Box<dyn FnOnce(T) -> RestResult + Send>>
 }
 
 impl<T> QuickRestValue<T>
     where T: Serialize + Send + DeserializeOwned + core::fmt::Debug
 {
     pub fn new_getter<G>(api: Cow<'static, str>, id: Cow<'static, str>, getter: G) -> Self
-        where G: FnOnce() -> T + Send + Sync + 'static
+        where G: FnOnce() -> RestResult<T> + Send + Sync + 'static
     {
         QuickRestValue {
             api,
@@ -75,7 +75,7 @@ impl<T> QuickRestValue<T>
     }
 
     pub fn new_setter<S>(api: Cow<'static, str>, id: Cow<'static, str>, setter: S) -> Self
-        where S: FnOnce(T) -> () + Send + 'static
+        where S: FnOnce(T) -> RestResult + Send + 'static
     {
         QuickRestValue {
             api,
@@ -86,8 +86,8 @@ impl<T> QuickRestValue<T>
     }
 
     pub fn new_getter_and_setter<G, S>(api: Cow<'static, str>, id: Cow<'static, str>, getter: G, setter: S) -> Self
-        where G: FnOnce() -> T + Send + Sync + 'static,
-              S: FnOnce(T) -> () + Send + 'static
+        where G: FnOnce() -> RestResult<T> + Send + Sync + 'static,
+              S: FnOnce(T) -> RestResult + Send + 'static
     {
         QuickRestValue {
             api,
@@ -123,7 +123,7 @@ async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRest
         if let Some(getter) = v.get {
             match method.as_deref() {
                 Some("GET") => {
-                    let value = (getter)();
+                    let value = (getter)()?;
                     let dto = ValueDto {
                         value
                     };
@@ -148,7 +148,7 @@ async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRest
                     match dto {
                         Ok(dto) => {
                             debug!(l, "Set the new value. New value, as debug format: {:?}", dto.value);
-                            (setter)(dto.value);
+                            (setter)(dto.value)?;
                             let r = ctx.response(HttpStatusCodes::NoContent, None, None).await?;
                             return Ok(r.into());
                         },
@@ -158,14 +158,7 @@ async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRest
                                 debug!(ctx.logger, "Body as a string: {body}", body=body);
                             }
 
-                            let msg = format!("{:?}", e);
-                            let error = json!({
-                                "error": msg
-                            });
-                            let body = serde_json::to_string_pretty(&error).unwrap();
-
-                            let r = ctx.response(HttpStatusCodes::BadRequest, Some("application/json".into()), Some(&body)).await?;
-                            return Ok(r.into());
+                            return Err(e.into());
                         }
                     }
                 },
@@ -177,8 +170,8 @@ async fn quick_rest_value_fn<S, T>(mut ctx: HttpResponseBuilder<S>, v: QuickRest
             let g = OpenApiGetter {
                 id: v.id,
                 getter: Box::new(|| {
-                    let val = (getter)();
-                    serde_json::to_value(val).unwrap()
+                    let val = (getter)()?;
+                    Ok(serde_json::to_value(val)?)
                 }),
                 json_schema_type: T::json_schema_type()
             };
@@ -372,11 +365,9 @@ async fn openapi_handler_fn<S>(mut ctx: HttpResponseBuilder<S>) -> HandlerResult
             paths
         };
 
-        let json = serde_json::to_string_pretty(&o);
-        if let Ok(json) = json {
-            let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await?;;
-            return Ok(r.into());
-        }
+        let json = serde_json::to_string_pretty(&o)?;
+        let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await?;
+        return Ok(r.into());
     }
 
 
@@ -386,14 +377,12 @@ async fn openapi_handler_fn<S>(mut ctx: HttpResponseBuilder<S>) -> HandlerResult
         let c = ctx.extras.get_mut::<OpenApiContext>();
 
         for g in c.combined_getters.drain(..) {
-            map.insert(g.id.into_owned(), (g.getter)());
+            map.insert(g.id.into_owned(), (g.getter)()?);
         }
         
-        let json = serde_json::to_string_pretty(&Value::Object(map));
-        if let Ok(json) = json {
-            let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await?;
-            return Ok(r.into())
-        }
+        let json = serde_json::to_string_pretty(&Value::Object(map))?;
+        let r = ctx.response(HttpStatusCodes::Ok, "application/json".into(), Some(&json)).await?;
+        return Ok(r.into());
     }    
 
     Ok(ctx.into())
