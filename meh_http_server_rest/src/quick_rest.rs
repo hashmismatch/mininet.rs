@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::{Map, Value, json};
 use slog::{debug, info, o, trace, warn};
 
-use crate::{HandlerResult, RestError, RestResult, middleware::{HttpMiddlewareWrap, HttpMidlewareFn, HttpMidlewareFnFut}, openapi::{Info, OpenApi, Path, PathMethod, RequestBody, RequestContent, Response, ResponseContent, Server}, response_builder::HttpResponseBuilder};
+use crate::{HandlerResult, RestError, RestResult, middleware::{HttpMidlewareFn, HttpMidlewareFnFut}, openapi::{Info, OpenApi, Path, PathMethod, RequestBody, RequestContent, Response, ResponseContent, Server}, response_builder::HttpResponseBuilder};
 use crate::middleware::HttpMiddleware;
 
 
