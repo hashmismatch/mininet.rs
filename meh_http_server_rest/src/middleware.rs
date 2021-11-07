@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, pin::Pin, sync::Arc};
+use std::{marker::PhantomData, ops::Add, pin::Pin, sync::Arc};
 
 use frunk::{HCons, hlist::Plucker, prelude::HList};
 use futures::Future;
@@ -62,6 +62,48 @@ pub struct NCons<H, T> {
     pub tail: T
 }
 
+impl<H> NCons<H, NNil> {
+    pub fn new(head: H) -> Self {
+        Self {
+            head,
+            tail: NNil
+        }
+    }
+}
+
+impl<RHS> Add<RHS> for NNil
+where
+    RHS: NList,
+{
+    type Output = RHS;
+
+    fn add(self, rhs: RHS) -> RHS {
+        rhs
+    }
+}
+
+impl<H, T, RHS> Add<RHS> for NCons<H, T>
+where
+    T: Add<RHS>,
+    RHS: NList,
+{
+    type Output = NCons<H, <T as Add<RHS>>::Output>;
+
+    fn add(self, rhs: RHS) -> Self::Output {
+        NCons {
+            head: self.head,
+            tail: self.tail + rhs,
+        }
+    }
+}
+
+pub trait NList {
+
+}
+
+impl NList for NNil { }
+impl<H, T> NList for NCons<H, T> { }
+
 pub trait NPop {
     type Target;
     type Remainder;
@@ -112,7 +154,7 @@ impl<H, T> NextMiddleware2<H, T>
                         }
                     }
                 );
-            }            
+            }
         }
         
         None
@@ -139,18 +181,9 @@ fn plucky() {
         123,
         123.0
     ];
-    */
+    */ 
 
-    let n = NCons {
-        head: 123,
-        tail: NCons {
-            head: "123",
-            tail: NCons {
-                head: 123.0,
-                tail: NNil
-            }
-        }
-    };
+    let n = NCons::new(123usize) + NCons::new("123") + NCons::new(123.0);
 
     let mw = NextMiddleware2 { list: n };
     let mw = mw.next().unwrap();
