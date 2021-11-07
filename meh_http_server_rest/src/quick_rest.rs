@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::{Map, Value, json};
 use slog::{debug, info, o, trace, warn};
 
-use crate::{HandlerResult, RestError, RestResult, middleware::{HttpMidlewareChain, HttpMidlewareFn, HttpMidlewareFnFut}, openapi::{Info, OpenApi, Path, PathMethod, RequestBody, RequestContent, Response, ResponseContent, Server}, response_builder::HttpResponseBuilder};
+use crate::{HandlerResult, RestError, RestResult, middleware::{HttpMiddlewareWrap, HttpMidlewareFn, HttpMidlewareFnFut}, openapi::{Info, OpenApi, Path, PathMethod, RequestBody, RequestContent, Response, ResponseContent, Server}, response_builder::HttpResponseBuilder};
+use crate::middleware::HttpMiddleware;
 
 
 struct OpenApiContext {
@@ -316,7 +317,8 @@ async fn quick_rest_value_openapi_fn<S, T>(mut ctx: HttpResponseBuilder<S>, api:
     Ok(ctx.into())
 }
 
-pub fn quick_rest_value_with_openapi<S, T>(q: QuickRestValue<T>) -> HttpMidlewareChain<HttpMidlewareFnFut<S>, HttpMidlewareFnFut<S>, S>
+/*
+pub fn quick_rest_value_with_openapi<S, T>(q: QuickRestValue<T>) -> HttpMidlewareChain<HttpMidlewareFnFut<S>, HttpMiddlewareWrap<S, HttpMidlewareFnFut<S>>, S>
     where S: TcpSocket,
           T: OpenApiType
 {
@@ -331,8 +333,10 @@ pub fn quick_rest_value_with_openapi<S, T>(q: QuickRestValue<T>) -> HttpMidlewar
         quick_rest_value_openapi_fn::<S, T>(ctx, api, id)
     });
 
-    HttpMidlewareChain::new_pair(val, openapi)
+    val.http_chain(openapi)
+    //HttpMidlewareChain::new_pair(val, openapi)
 }
+*/
 
 async fn openapi_handler_fn<S>(mut ctx: HttpResponseBuilder<S>) -> HandlerResult<S>
     where S: TcpSocket

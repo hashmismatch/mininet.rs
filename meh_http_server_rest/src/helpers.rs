@@ -1,5 +1,5 @@
 use meh_http_common::{req::HttpServerHeader, resp::HttpStatusCodes, stack::TcpSocket};
-use slog::warn;
+use slog::{debug, warn};
 
 use crate::{HandlerResult, middleware::{HttpMidlewareFn, HttpMidlewareFnFut}, response_builder::HttpResponseBuilder};
 
@@ -9,6 +9,7 @@ where
     S: TcpSocket,
 {
     HttpMidlewareFn::new(|mut ctx: HttpResponseBuilder<S>| {
+        debug!(ctx.logger, "CORS");
         ctx.additional_headers.push(HttpServerHeader {
             name: "Access-Control-Allow-Origin".into(),
             value: "*".into(),

@@ -1,5 +1,6 @@
 use std::{marker::PhantomData, pin::Pin, sync::Arc};
 
+use frunk::HCons;
 use futures::Future;
 use meh_http_common::{resp::HttpStatusCodes, stack::TcpSocket};
 use async_trait::async_trait;
@@ -15,6 +16,98 @@ pub struct Next<'a, S> where S: TcpSocket {
 }
 */
 
+pub struct ChainTail<A, B, S> {
+    pub head: A,
+    pub tail: B,
+    _socket: PhantomData<S>
+}
+
+fn get_head<H, R>(list: HCons<H, R>) -> (H, R)
+    where H: HttpMiddleware
+{
+    let (head, remainder) = list.pluck();
+
+    (head, remainder)
+}
+
+
+
+/*
+impl<A, S> ChainTail<A, HttpMiddlewareNull<S>, S> {
+
+}
+*/
+
+
+
+
+
+/*
+pub fn new_chain<S, A>(start: A) -> ChainTail<A, HttpMiddlewareNull<S>, S> {
+    ChainTail {
+        head: start,
+        tail: HttpMiddlewareNull { _socket: Default::default() },
+        _socket: Default::default()
+    }
+}
+
+
+
+#[async_trait]
+impl<A, B, S> HttpMiddlewareNext for ChainTail<A, B, S>
+    where 
+        A: HttpMiddleware<Socket=S>,
+        B: HttpMiddlewareNext<Socket=S>,
+        S: TcpSocket
+{
+    type Socket=S;
+    
+    async fn process(self, ctx: HttpResponseBuilder<Self::Socket>) -> HandlerResult<Self::Socket> {
+        self.a.handle(ctx, self.b).await
+    }
+}
+*/
+
+
+
+
+#[async_trait]
+pub trait HttpMiddlewareNext: Send + Sized {
+    type Socket: TcpSocket;
+
+    async fn process(self, ctx: HttpResponseBuilder<Self::Socket>) -> HandlerResult<Self::Socket>;
+
+    /*
+    fn http_chain<B>(self, other: B) -> HttpMidlewareChain<Self, HttpMiddlewareWrap<Self::Socket, B>, Self::Socket>
+    where
+        B: HttpMiddleware<Socket = Self::Socket>,
+    {
+        let w = HttpMiddlewareWrap {
+            _socket: PhantomData::default(),
+            a: other
+        };
+        HttpMidlewareChain {
+            a: self,
+            b: w,
+            _socket: Default::default()
+        }
+    }
+    */
+
+    async fn run(self, ctx: HttpContext<Self::Socket>) -> HandlerResult<Self::Socket>
+    {
+        let resp_builder = HttpResponseBuilder {
+            additional_headers: vec![],
+            ctx,
+            extras: Extras::default(),
+        };
+
+        let res = self.process(resp_builder).await;
+
+        res
+    }    
+}
+
 
 
 
@@ -22,45 +115,133 @@ pub struct Next<'a, S> where S: TcpSocket {
 pub trait HttpMiddleware: Send + Sized {
     type Socket: TcpSocket;
 
-    async fn process(self, ctx: HttpContext<Self::Socket>) -> HandlerResult<Self::Socket> {
-        let resp_builder = HttpResponseBuilder {
-            additional_headers: vec![],
-            ctx,
-            extras: Extras::default(),
-        };
-
-        let res = self.handle(resp_builder).await;
-
-        /*
-        // wrong place for this!
-        if let Err(e) = res {
-            let msg = format!("{:?}", e);
-            let error = json!({
-                "error": msg
-            });
-            let body = serde_json::to_string_pretty(&error).unwrap();
-
-            let r = ctx.response(HttpStatusCodes::BadRequest, Some("application/json".into()), Some(&body)).await?;
-            return Ok(r.into());
-        }
-        */
-
-        res
-    }
-
-    async fn handle(
+    async fn handle<N>(
         self,
         mut ctx: HttpResponseBuilder<Self::Socket>,
-    ) -> HandlerResult<Self::Socket>;
+        next: N
+    ) -> HandlerResult<Self::Socket>    
+    where N: HttpMiddlewareNext<Socket=Self::Socket>;
 
-    fn chain<B>(self, other: B) -> HttpMidlewareChain<Self, B, Self::Socket>
+    fn http_chain<B>(self, other: B) -> HttpMidlewareChainSecond<Self, B, Self::Socket>
     where
         B: HttpMiddleware<Socket = Self::Socket>,
     {
-        HttpMidlewareChain::new_pair(self, other)
+        HttpMidlewareChainSecond {
+            a: self,
+            b: other,
+            _socket: Default::default()
+        }
     }
 }
 
+
+pub struct HttpMidlewareChainFirst<A, B, S>
+    where 
+        A: HttpMiddleware<Socket=S>,
+        B: HttpMiddlewareNext<Socket=S>,
+        S: TcpSocket
+{
+    a: A,
+    b: B,
+    _socket: PhantomData<S>,
+}
+
+#[async_trait]
+impl<A, B, S> HttpMiddlewareNext for HttpMidlewareChainFirst<A, B, S>
+    where 
+        A: HttpMiddleware<Socket=S>,
+        B: HttpMiddlewareNext<Socket=S>,
+        S: TcpSocket
+{
+    type Socket=S;
+    
+    async fn process(self, ctx: HttpResponseBuilder<Self::Socket>) -> HandlerResult<Self::Socket> {
+        self.a.handle(ctx, self.b).await
+    }
+}
+
+
+pub struct HttpMidlewareChainSecond<A, B, S>
+    where 
+        A: HttpMiddleware<Socket=S>,
+        B: HttpMiddleware<Socket=S>,
+        S: TcpSocket
+{
+    a: A,
+    b: B,
+    _socket: PhantomData<S>,
+}
+
+impl<A, B, S> HttpMidlewareChainSecond<A, B, S>
+where 
+        A: HttpMiddleware<Socket=S>,
+        B: HttpMiddleware<Socket=S>,
+        S: TcpSocket
+{
+    pub fn http_chain<O>(self, other: O) -> HttpMidlewareChainFirst<O, Self, S>
+    where
+        O: HttpMiddleware<Socket = S>
+    {
+        // todo: not quite ok, it sets "other" as the first one
+        HttpMidlewareChainFirst {
+            a: other,
+            b: self,
+            _socket: Default::default()
+        }
+    }
+}
+
+#[async_trait]
+impl<A, B, S> HttpMiddlewareNext for HttpMidlewareChainSecond<A, B, S>
+    where 
+        A: HttpMiddleware<Socket=S>,
+        B: HttpMiddleware<Socket=S>,
+        S: TcpSocket
+{
+    type Socket=S;
+    
+    async fn process(self, ctx: HttpResponseBuilder<Self::Socket>) -> HandlerResult<Self::Socket> {
+        //self.a.process(ctx);
+        //self.a.handle(ctx, self.b).await
+        //self.a.handle(ctx, HttpMiddlewareWrap { a: self.b, _socket: Default::default ()}).await
+        self.a.handle(ctx, HttpMiddlewareWrap { a: self.b, _socket: Default::default ()}).await
+    }
+}
+
+
+pub struct HttpMiddlewareWrap<S, A> {
+    _socket: PhantomData<S>,
+    a: A
+}
+
+#[async_trait]
+impl<S, A> HttpMiddlewareNext for HttpMiddlewareWrap<S, A>
+    where S: TcpSocket, A: HttpMiddleware<Socket=S>
+{
+    type Socket=S;
+    
+    async fn process(self, ctx: HttpResponseBuilder<Self::Socket>) -> HandlerResult<Self::Socket> {
+        self.a.handle(ctx, HttpMiddlewareNull { _socket: Default::default() }).await
+    }
+}
+
+#[async_trait]
+impl<S, A> HttpMiddleware for HttpMiddlewareWrap<S, A>
+    where S: TcpSocket, A: HttpMiddleware<Socket=S>
+{
+    type Socket=S;
+    
+    async fn handle<N>(
+        self,
+        ctx: HttpResponseBuilder<Self::Socket>,
+        next: N
+    ) -> HandlerResult<Self::Socket>    
+    where N: HttpMiddlewareNext<Socket=Self::Socket> {
+        self.a.handle(ctx, next).await
+    }
+}
+
+/*
 pub struct HttpMidlewareChain<A, B, S>
 where
     A: HttpMiddleware<Socket = S>,
@@ -97,10 +278,13 @@ where
         }
     }
 }
+*/
 
 
 #[derive(Default)]
-pub struct HttpMiddlewareNull<S>(PhantomData<S>);
+pub struct HttpMiddlewareNull<S> {
+    _socket: PhantomData<S>
+}
 
 #[async_trait]
 impl<S> HttpMiddleware for HttpMiddlewareNull<S>
@@ -109,11 +293,27 @@ where
 {
     type Socket = S;
 
-    async fn handle(self, ctx: HttpResponseBuilder<S>) -> HandlerResult<S> {
+    async fn handle<N>(self, mut ctx: HttpResponseBuilder<Self::Socket>, next: N) -> HandlerResult<Self::Socket>    
+        where N: HttpMiddlewareNext<Socket=Self::Socket>
+    {
         Ok(ctx.into())
     }
 }
 
+#[async_trait]
+impl<S> HttpMiddlewareNext for HttpMiddlewareNull<S>
+where
+    S: TcpSocket
+{
+    type Socket = S;
+
+    async fn process(self, ctx: HttpResponseBuilder<Self::Socket>) -> HandlerResult<Self::Socket> {
+        Ok(ctx.into())
+    }    
+}
+
+
+/*
 #[async_trait]
 impl<A, B, S> HttpMiddleware for HttpMidlewareChain<A, B, S>
 where
@@ -131,6 +331,7 @@ where
         }
     }
 }
+*/
 
 pub struct HttpMidlewareFn<S>
 where
@@ -161,10 +362,19 @@ where
 {
     type Socket = S;
 
-    async fn handle(self, ctx: HttpResponseBuilder<Self::Socket>) -> HandlerResult<Self::Socket> {
-        (self.func)(ctx)
+    async fn handle<N>(self, mut ctx: HttpResponseBuilder<Self::Socket>, next: N) -> HandlerResult<Self::Socket>    
+        where N: HttpMiddlewareNext<Socket=Self::Socket> 
+    {
+        let res = (self.func)(ctx)?;
+        match res {
+            HandlerResultOk::Pass(p) => {
+                next.process(p).await
+            },
+            _ => Ok(res)
+        }
     }
 }
+
 
 pub struct HttpMidlewareFnFut<S>
 where
@@ -202,7 +412,15 @@ where
 {
     type Socket = S;
 
-    async fn handle(self, ctx: HttpResponseBuilder<Self::Socket>) -> HandlerResult<Self::Socket> {
-        (self.func)(ctx).await
+    async fn handle<N>(self, mut ctx: HttpResponseBuilder<Self::Socket>, next: N) -> HandlerResult<Self::Socket>    
+        where N: HttpMiddlewareNext<Socket=Self::Socket>
+    {
+        let res = (self.func)(ctx).await?;
+        match res {
+            HandlerResultOk::Pass(p) => {
+                next.process(p).await
+            },
+            _ => Ok(res)
+        }
     }
 }
