@@ -3,22 +3,22 @@ use std::ops::Deref;
 use meh_http_common::{req::HttpServerHeader, resp::{HttpResponseWriter, HttpStatusCodes}, stack::TcpSocket};
 use meh_http_server::HttpContext;
 
-use crate::{RestError, extras::Extras};
+use crate::{RestError, extras::Extras, middleware::HttpMiddlewareContext};
 
 pub struct HttpResponseBuilder<S>
 where
-    S: TcpSocket,
+    S: HttpMiddlewareContext,
 {
     pub additional_headers: Vec<HttpServerHeader>,
     pub extras: Extras,
-    pub(crate) ctx: HttpContext<S>,
+    pub(crate) ctx: HttpContext<S::Socket>,
 }
 
 impl<S> Deref for HttpResponseBuilder<S>
 where
-    S: TcpSocket,
+    S: HttpMiddlewareContext,
 {
-    type Target = HttpContext<S>;
+    type Target = HttpContext<S::Socket>;
 
     fn deref(&self) -> &Self::Target {
         &self.ctx
@@ -27,7 +27,7 @@ where
 
 impl<S> HttpResponseBuilder<S>
 where
-    S: TcpSocket,
+    S: HttpMiddlewareContext,
 {
     pub async fn response(
         mut self,

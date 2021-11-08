@@ -9,311 +9,189 @@ use serde_json::json;
 
 use crate::{HandlerResult, HandlerResultOk, extras::Extras, response_builder::HttpResponseBuilder};
 
-pub struct NextMiddleware<H, T>
-    where H: HttpMiddleware,
-          T: NPop + NPop<Target = H> + Send
+#[async_trait]
+pub trait HttpMiddlewareRunner: Send + Sized {
+    type Context: HttpMiddlewareContext;
+
+    async fn run(self, ctx: HttpResponseBuilder<Self::Context>) -> HandlerResult<Self::Context>;
+}
+
+
+pub trait HttpMiddlewareContext: Send {
+    type Socket: TcpSocket;
+}
+
+
+pub struct Ctx<S> {
+    pub socket: S
+}
+
+impl<S> HttpMiddlewareContext for Ctx<S>
+    where S: TcpSocket
 {
-    list: NCons<H, T>
+    type Socket = S;
 }
-
-impl<H, T> NextMiddleware<H, T>
-    where 
-        H: HttpMiddleware,
-        T: NPop + NPop<Target = H> + Send,
-        <T as NPop>::Remainder: NPop + Send
-{
-    pub async fn process(self, ctx: HttpResponseBuilder<<H as HttpMiddleware>::Socket>) -> HandlerResult<<H as HttpMiddleware>::Socket>
-    {
-        if let Some((head, tail)) = self.list.try_get() {
-            
-            let p2 = tail.try_get();
-            if let Some((h2, t2)) = p2 {
-                /*
-                let next = NextMiddleware {
-                    list: NCons {
-                        head: h2,
-                        tail: t2
-                    }
-                };
-                
-                let res = head.handle(ctx, next).await?;
-                return Ok(res);
-                */
-            }
-        }
-
-        Ok(ctx.into())
-    }
-}
-#[derive(Debug)]
-pub struct NNil;
-pub struct NCons<H, T> {
-    pub head: H,
-    pub tail: T
-}
-
-impl<H> NCons<H, NNil> {
-    pub fn new(head: H) -> Self {
-        Self {
-            head,
-            tail: NNil
-        }
-    }
-}
-
-impl<RHS> Add<RHS> for NNil
-where
-    RHS: NList,
-{
-    type Output = RHS;
-
-    fn add(self, rhs: RHS) -> RHS {
-        rhs
-    }
-}
-
-impl<H, T, RHS> Add<RHS> for NCons<H, T>
-where
-    T: Add<RHS>,
-    RHS: NList,
-{
-    type Output = NCons<H, <T as Add<RHS>>::Output>;
-
-    fn add(self, rhs: RHS) -> Self::Output {
-        NCons {
-            head: self.head,
-            tail: self.tail + rhs,
-        }
-    }
-}
-
-pub trait NList {
-
-}
-
-impl NList for NNil { }
-impl<H, T> NList for NCons<H, T> { }
-
-pub trait NPop {
-    type Target;
-    type Remainder;
-
-    fn try_get(self) -> Option<(Self::Target, Self::Remainder)>;
-}
-
-impl<H, T> NPop for NCons<H, T> {
-    type Target = H;
-    type Remainder = T;
-
-    fn try_get(self) -> Option<(Self::Target, Self::Remainder)> {
-        Some((
-            self.head,
-            self.tail
-        ))
-    }
-}
-
-impl NPop for NNil {
-    type Target = NNil;
-    type Remainder = NNil;
-
-    fn try_get(self) -> Option<(Self::Target, Self::Remainder)> {
-        None
-    }
-}
-
-pub struct NextMiddleware2<H, T> {
-    list: NCons<H, T>
-}
-
-impl<H, T> NextMiddleware2<H, T>
-    where H: core::fmt::Debug, T: NPop
-{
-    pub fn next(self) -> Option<NextMiddleware2<<T as NPop>::Target, <T as NPop>::Remainder>>
-    {
-        if let Some((head, tail)) = self.list.try_get() {
-            println!("value: {:?}", head);
-
-            let p2 = tail.try_get();
-            if let Some((h2, t2)) = p2 {
-                return Some(
-                    NextMiddleware2 {
-                        list: NCons {
-                            head: h2,
-                            tail: t2
-                        }
-                    }
-                );
-            }
-        }
-        
-        None
-    }
-}
-
-#[cfg(test)]
-#[test]
-fn plucky() {
-    use frunk::hlist;
-
-    /*
-    use crate::{error_handler::error_handler, helpers::allow_cors_all};
-
-    let chain = hlist![
-        allow_cors_all(),
-        error_handler()
-    ];
-    */
-
-    /*
-    let s = hlist![
-        "123",
-        123,
-        123.0
-    ];
-    */ 
-
-    let n = NCons::new(123usize) + NCons::new("123") + NCons::new(123.0);
-
-    let mw = NextMiddleware2 { list: n };
-    let mw = mw.next().unwrap();
-    let mw = mw.next().unwrap();
-    let mw = mw.next();
-    assert!(mw.is_none());
-
-    //let (h, t) = n.try_get().unwrap();
-    //let (h, t) = t.try_get().unwrap();
-    
-}
-
 
 
 #[async_trait]
 pub trait HttpMiddleware: Send + Sized {
-    type Socket: TcpSocket;
+    type Context: HttpMiddlewareContext;
 
-    async fn handle<H, T>(
-        self,
-        mut ctx: HttpResponseBuilder<Self::Socket>,
-        next: NextMiddleware<H, T>
-    ) -> HandlerResult<Self::Socket>    
-    where 
-        H: HttpMiddleware<Socket=Self::Socket>,
-        T: NPop + NPop<Target = H> + Send,
-        <T as NPop>::Remainder: Send;
+    async fn handle<N>(self, ctx: HttpResponseBuilder<Self::Context>, next: N) -> HandlerResult<Self::Context>
+        where N: HttpMiddlewareRunner<Context = Self::Context>;
 }
 
 
 
 
-
-
-pub struct HttpMidlewareFn<S>
-where
-    S: TcpSocket,
-{
-    func: Box<dyn FnOnce(HttpResponseBuilder<S>) -> HandlerResult<S> + Send>,
+pub struct Null<C> {
+    _ctx: PhantomData<C>
 }
 
-impl<S> HttpMidlewareFn<S>
-where
-    S: TcpSocket,
+#[async_trait]
+impl<C> HttpMiddlewareRunner for Null<C>
+    where C: HttpMiddlewareContext
 {
-    pub fn new<F>(func: F) -> Self
-    where
-        F: Fn(HttpResponseBuilder<S>) -> HandlerResult<S> + Send,
-        F: 'static,
-    {
-        HttpMidlewareFn {
-            func: Box::new(func),
-        }
+    type Context = C;
+
+    async fn run(self, ctx: HttpResponseBuilder<Self::Context>) -> HandlerResult<Self::Context> {
+        Ok(ctx.into())
     }
 }
 
 #[async_trait]
-impl<S> HttpMiddleware for HttpMidlewareFn<S>
-where
-    S: TcpSocket,
+impl<C> HttpMiddleware for Null<C>
+    where C: HttpMiddlewareContext
 {
-    type Socket = S;
+    type Context = C;
 
-    async fn handle<H, T>(
-        self,
-        mut ctx: HttpResponseBuilder<Self::Socket>,
-        next: NextMiddleware<H, T>
-    ) -> HandlerResult<Self::Socket>    
-    where H: HttpMiddleware<Socket=Self::Socket>,
-    T: NPop + NPop<Target = H> + Send,
-    <T as NPop>::Remainder: Send
+    async fn handle<N>(self, ctx: HttpResponseBuilder<Self::Context>, _next: N) -> HandlerResult<Self::Context>
+        where N: HttpMiddlewareRunner<Context = Self::Context> 
     {
-        todo!();
-        let res = (self.func)(ctx)?;
-        /*
-        match res {
-            HandlerResultOk::Pass(p) => {
-                //next.process(p).await
-            },
-            _ => Ok(res)
-        }
-        */
+        Ok(ctx.into())
     }
 }
 
 
-pub struct HttpMidlewareFnFut<S>
-where
-    S: TcpSocket,
-{
-    func: Box<
-        dyn FnOnce(HttpResponseBuilder<S>) -> Pin<Box<dyn Future<Output = HandlerResult<S>> + Send>>
-            + Send,
-    >,
-}
-
-impl<S> HttpMidlewareFnFut<S>
-where
-    S: TcpSocket,
-{
-    pub fn new<F, Fut>(func: F) -> Self
-    where
-        F: FnOnce(HttpResponseBuilder<S>) -> Fut,
-        F: Send + 'static,
-        Fut: Future<Output = HandlerResult<S>> + Send + 'static,
-    {
-        Self {
-            func: Box::new(|c| {
-                let r = func(c);
-                Box::pin(r)
-            }),
-        }
+impl<C> Null<C> {
+    pub fn new() -> Self {
+        Null { _ctx: PhantomData::default() }
     }
 }
 
-#[async_trait]
-impl<S> HttpMiddleware for HttpMidlewareFnFut<S>
-where
-    S: TcpSocket,
-{
-    type Socket = S;
 
-    async fn handle<H, T>(
-        self,
-        mut ctx: HttpResponseBuilder<Self::Socket>,
-        next: NextMiddleware<H, T>
-    ) -> HandlerResult<Self::Socket>    
-    where H: HttpMiddleware<Socket=Self::Socket>,
-    T: NPop + NPop<Target = H> + Send,
-    <T as NPop>::Remainder: Send
-    {
-        todo!()
-        /*
-        let res = (self.func)(ctx).await?;
-        match res {
-            HandlerResultOk::Pass(p) => {
-                next.process(p).await
-            },
-            _ => Ok(res)
-        }
-        */
-    }
-}
+
+
+
+
+
+
+// pub struct HttpMidlewareFn<S>
+// where
+//     S: TcpSocket,
+// {
+//     func: Box<dyn FnOnce(HttpResponseBuilder<S>) -> HandlerResult<S> + Send>,
+// }
+
+// impl<S> HttpMidlewareFn<S>
+// where
+//     S: TcpSocket,
+// {
+//     pub fn new<F>(func: F) -> Self
+//     where
+//         F: Fn(HttpResponseBuilder<S>) -> HandlerResult<S> + Send,
+//         F: 'static,
+//     {
+//         HttpMidlewareFn {
+//             func: Box::new(func),
+//         }
+//     }
+// }
+
+// #[async_trait]
+// impl<S> HttpMiddleware for HttpMidlewareFn<S>
+// where
+//     S: TcpSocket,
+// {
+//     type Socket = S;
+
+//     async fn handle<H, T>(
+//         self,
+//         mut ctx: HttpResponseBuilder<Self::Socket>,
+//         next: NextMiddleware<H, T>
+//     ) -> HandlerResult<Self::Socket>    
+//     where H: HttpMiddleware<Socket=Self::Socket>,
+//     T: NPop + NPop<Target = H> + Send,
+//     <T as NPop>::Remainder: Send
+//     {
+//         todo!();
+//         let res = (self.func)(ctx)?;
+//         /*
+//         match res {
+//             HandlerResultOk::Pass(p) => {
+//                 //next.process(p).await
+//             },
+//             _ => Ok(res)
+//         }
+//         */
+//     }
+// }
+
+
+// pub struct HttpMidlewareFnFut<S>
+// where
+//     S: TcpSocket,
+// {
+//     func: Box<
+//         dyn FnOnce(HttpResponseBuilder<S>) -> Pin<Box<dyn Future<Output = HandlerResult<S>> + Send>>
+//             + Send,
+//     >,
+// }
+
+// impl<S> HttpMidlewareFnFut<S>
+// where
+//     S: TcpSocket,
+// {
+//     pub fn new<F, Fut>(func: F) -> Self
+//     where
+//         F: FnOnce(HttpResponseBuilder<S>) -> Fut,
+//         F: Send + 'static,
+//         Fut: Future<Output = HandlerResult<S>> + Send + 'static,
+//     {
+//         Self {
+//             func: Box::new(|c| {
+//                 let r = func(c);
+//                 Box::pin(r)
+//             }),
+//         }
+//     }
+// }
+
+// #[async_trait]
+// impl<S> HttpMiddleware for HttpMidlewareFnFut<S>
+// where
+//     S: TcpSocket,
+// {
+//     type Socket = S;
+
+//     async fn handle<H, T>(
+//         self,
+//         mut ctx: HttpResponseBuilder<Self::Socket>,
+//         next: NextMiddleware<H, T>
+//     ) -> HandlerResult<Self::Socket>    
+//     where H: HttpMiddleware<Socket=Self::Socket>,
+//     T: NPop + NPop<Target = H> + Send,
+//     <T as NPop>::Remainder: Send
+//     {
+//         todo!()
+//         /*
+//         let res = (self.func)(ctx).await?;
+//         match res {
+//             HandlerResultOk::Pass(p) => {
+//                 next.process(p).await
+//             },
+//             _ => Ok(res)
+//         }
+//         */
+//     }
+// }

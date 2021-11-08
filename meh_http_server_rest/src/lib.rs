@@ -1,12 +1,13 @@
 pub mod extras;
-pub mod helpers;
+//pub mod helpers;
 pub mod middleware;
+pub mod middleware_chain;
 pub mod openapi;
-pub mod quick_rest;
+//pub mod quick_rest;
 pub mod response_builder;
-pub mod error_handler;
-pub mod xp;
-pub mod xp2;
+//pub mod error_handler;
+//pub mod xp;
+//pub mod xp2;
 
 use std::any::{Any, TypeId};
 use std::borrow::Cow;
@@ -21,6 +22,7 @@ use meh_http_common::req::HttpServerHeader;
 use meh_http_common::resp::{HttpResponseWriter, HttpStatusCodes};
 use meh_http_common::stack::{TcpError, TcpSocket};
 use meh_http_server::HttpContext;
+use middleware::HttpMiddlewareContext;
 use response_builder::{HttpReponseComplete, HttpResponseBuilder};
 use slog::warn;
 
@@ -48,7 +50,7 @@ impl From<TcpError> for RestError {
 pub type HandlerResult<S> = Result<HandlerResultOk<S>, RestError>;
 
 pub struct HandlerError<S>
-    where S: TcpSocket
+    where S: HttpMiddlewareContext
 {
     pub error: RestError,
     pub ctx: HttpResponseBuilder<S>
@@ -56,7 +58,7 @@ pub struct HandlerError<S>
 
 pub enum HandlerResultOk<S>
 where
-    S: TcpSocket,
+    S: HttpMiddlewareContext,
 {
     Complete(HttpReponseComplete),
     Pass(HttpResponseBuilder<S>),
@@ -64,7 +66,7 @@ where
 
 impl<S> From<HttpReponseComplete> for HandlerResultOk<S>
 where
-    S: TcpSocket,
+    S: HttpMiddlewareContext,
 {
     fn from(v: HttpReponseComplete) -> Self {
         Self::Complete(v)
@@ -73,7 +75,7 @@ where
 
 impl<S> From<HttpResponseBuilder<S>> for HandlerResultOk<S>
 where
-    S: TcpSocket,
+    S: HttpMiddlewareContext,
 {
     fn from(v: HttpResponseBuilder<S>) -> Self {
         Self::Pass(v)
