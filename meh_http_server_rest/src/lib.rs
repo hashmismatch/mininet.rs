@@ -6,6 +6,7 @@ pub mod quick_rest;
 pub mod response_builder;
 pub mod error_handler;
 pub mod xp;
+pub mod xp2;
 
 use std::any::{Any, TypeId};
 use std::borrow::Cow;

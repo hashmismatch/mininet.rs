@@ -9,50 +9,40 @@ use serde_json::json;
 
 use crate::{HandlerResult, HandlerResultOk, extras::Extras, response_builder::HttpResponseBuilder};
 
-
-/*
-pub struct Next<'a, S> where S: TcpSocket {
-    pub(crate) next_middleware: &'a [Arc<dyn HttpMiddleware<Socket=S>>]
-}
-*/
-
-pub struct ChainTail<A, B, S> {
-    pub head: A,
-    pub tail: B,
-    _socket: PhantomData<S>
-}
-
-/*
-fn get_head<H, R>(list: HCons<H, R>) -> (H, R)
-    where H: HttpMiddleware
+pub struct NextMiddleware<H, T>
+    where H: HttpMiddleware,
+          T: NPop + NPop<Target = H> + Send
 {
-    let (head, remainder) = list.pluck();
-
-    (head, remainder)
-}
-*/
-
-
-
-pub struct NextMiddleware<H, T> {
-    list: HCons<H, T>
+    list: NCons<H, T>
 }
 
 impl<H, T> NextMiddleware<H, T>
-    where H: HttpMiddleware
+    where 
+        H: HttpMiddleware,
+        T: NPop + NPop<Target = H> + Send,
+        <T as NPop>::Remainder: NPop + Send
 {
-    pub async fn process<S>(self, ctx: HttpResponseBuilder<S>) -> HandlerResult<S>
-        where S: TcpSocket
+    pub async fn process(self, ctx: HttpResponseBuilder<<H as HttpMiddleware>::Socket>) -> HandlerResult<<H as HttpMiddleware>::Socket>
     {
-        todo!()
-        /*
-        let (first, remainder) = self.list.pluck();
-        let next = NextMiddleware {
-            list: remainder
-        };
-        let res = first.handle(ctx, next).await?;
-        Ok(res.into())
-        */
+        if let Some((head, tail)) = self.list.try_get() {
+            
+            let p2 = tail.try_get();
+            if let Some((h2, t2)) = p2 {
+                /*
+                let next = NextMiddleware {
+                    list: NCons {
+                        head: h2,
+                        tail: t2
+                    }
+                };
+                
+                let res = head.handle(ctx, next).await?;
+                return Ok(res);
+                */
+            }
+        }
+
+        Ok(ctx.into())
     }
 }
 #[derive(Debug)]
@@ -138,7 +128,7 @@ pub struct NextMiddleware2<H, T> {
 
 impl<H, T> NextMiddleware2<H, T>
     where H: core::fmt::Debug, T: NPop
-    {
+{
     pub fn next(self) -> Option<NextMiddleware2<<T as NPop>::Target, <T as NPop>::Remainder>>
     {
         if let Some((head, tail)) = self.list.try_get() {
@@ -207,7 +197,10 @@ pub trait HttpMiddleware: Send + Sized {
         mut ctx: HttpResponseBuilder<Self::Socket>,
         next: NextMiddleware<H, T>
     ) -> HandlerResult<Self::Socket>    
-    where H: HttpMiddleware<Socket=Self::Socket>, T: Send;
+    where 
+        H: HttpMiddleware<Socket=Self::Socket>,
+        T: NPop + NPop<Target = H> + Send,
+        <T as NPop>::Remainder: Send;
 }
 
 
@@ -249,15 +242,20 @@ where
         mut ctx: HttpResponseBuilder<Self::Socket>,
         next: NextMiddleware<H, T>
     ) -> HandlerResult<Self::Socket>    
-    where H: HttpMiddleware<Socket=Self::Socket>, T: Send
+    where H: HttpMiddleware<Socket=Self::Socket>,
+    T: NPop + NPop<Target = H> + Send,
+    <T as NPop>::Remainder: Send
     {
+        todo!();
         let res = (self.func)(ctx)?;
+        /*
         match res {
             HandlerResultOk::Pass(p) => {
-                next.process(p).await
+                //next.process(p).await
             },
             _ => Ok(res)
         }
+        */
     }
 }
 
@@ -303,8 +301,12 @@ where
         mut ctx: HttpResponseBuilder<Self::Socket>,
         next: NextMiddleware<H, T>
     ) -> HandlerResult<Self::Socket>    
-    where H: HttpMiddleware<Socket=Self::Socket>, T: Send
+    where H: HttpMiddleware<Socket=Self::Socket>,
+    T: NPop + NPop<Target = H> + Send,
+    <T as NPop>::Remainder: Send
     {
+        todo!()
+        /*
         let res = (self.func)(ctx).await?;
         match res {
             HandlerResultOk::Pass(p) => {
@@ -312,5 +314,6 @@ where
             },
             _ => Ok(res)
         }
+        */
     }
 }

@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use crate::{HandlerResult, middleware::{HttpMiddleware, NextMiddleware}, response_builder::HttpResponseBuilder};
+use crate::{HandlerResult, middleware::{HttpMiddleware, NPop, NextMiddleware}, response_builder::HttpResponseBuilder};
 use async_trait::async_trait;
 use meh_http_common::stack::TcpSocket;
 use slog::{debug, error};
@@ -25,8 +25,12 @@ impl<S> HttpMiddleware for ErrorHandler<S>
         mut ctx: HttpResponseBuilder<Self::Socket>,
         next: NextMiddleware<H, T>
     ) -> HandlerResult<Self::Socket>    
-    where H: HttpMiddleware<Socket=Self::Socket>, T: Send   
+    where H: HttpMiddleware<Socket=Self::Socket>,
+    T: NPop + NPop<Target = H> + Send,
+    <T as NPop>::Remainder: Send
     {
+        todo!()
+        /*
         let logger = ctx.logger.clone();
         debug!(logger, "Error handler start.");
 
@@ -39,5 +43,6 @@ impl<S> HttpMiddleware for ErrorHandler<S>
         }
 
         res
+        */
     }
 }
