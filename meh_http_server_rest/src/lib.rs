@@ -5,7 +5,7 @@ pub mod middleware_chain;
 pub mod openapi;
 //pub mod quick_rest;
 pub mod response_builder;
-//pub mod error_handler;
+pub mod error_handler;
 //pub mod xp;
 //pub mod xp2;
 

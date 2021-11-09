@@ -16,21 +16,72 @@ pub trait HttpMiddlewareRunner: Send + Sized {
     async fn run(self, ctx: HttpResponseBuilder<Self::Context>) -> HandlerResult<Self::Context>;
 }
 
+pub async fn run_from_http<M, C>(mid: M, ctx: C, http_ctx: HttpContext< <<M as HttpMiddlewareRunner>::Context as HttpMiddlewareContext>::Socket >) 
+    -> HandlerResult< C >
+    where M: HttpMiddlewareRunner<Context = C>,
+    C: HttpMiddlewareContext
+{
+    let ctx = HttpResponseBuilder {
+        additional_headers: vec![],
+        http_ctx: http_ctx,
+        middleware_context: ctx,
+        extras: Extras::default()
+    };
+
+    mid.run(ctx).await
+}
+
 
 pub trait HttpMiddlewareContext: Send {
     type Socket: TcpSocket;
 }
 
 
-pub struct Ctx<S> {
-    pub socket: S
+pub struct DefaultContext<S> where S: TcpSocket
+{
+    _socket: PhantomData<S>
 }
+
+impl<S> HttpMiddlewareContext for DefaultContext<S>
+where S: TcpSocket
+{
+    type Socket = S;
+}
+
+
+
+impl<S> DefaultContext<S>
+where S: TcpSocket
+{
+    pub fn new() -> Self { Self { _socket: PhantomData::default() } }
+}
+
+
+
+/*
+pub struct Ctx<S>
+    where S: TcpSocket
+{
+    pub http_context: HttpContext<S>
+}
+
+impl<S> std::ops::Deref for Ctx<S>
+    where S: TcpSocket
+{
+    type Target = HttpContext<S>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.http_context
+    }
+}
+
 
 impl<S> HttpMiddlewareContext for Ctx<S>
     where S: TcpSocket
 {
     type Socket = S;
 }
+*/
 
 
 #[async_trait]

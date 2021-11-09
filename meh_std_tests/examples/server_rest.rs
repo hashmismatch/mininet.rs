@@ -13,19 +13,25 @@ use meh_http_server::HttpContext;
 use meh_http_server_rest::HandlerResult;
 use meh_http_server_rest::RestError;
 use meh_http_server_rest::error_handler::error_handler;
-use meh_http_server_rest::helpers::allow_cors_all;
-use meh_http_server_rest::helpers::not_found;
+use meh_http_server_rest::extras::Extras;
+//use meh_http_server_rest::helpers::allow_cors_all;
+//use meh_http_server_rest::helpers::not_found;
+//use meh_http_server_rest::middleware::Ctx;
+use meh_http_server_rest::middleware::DefaultContext;
 use meh_http_server_rest::middleware::HttpMiddleware;
-use meh_http_server_rest::middleware::HttpMiddlewareNext;
-use meh_http_server_rest::middleware::HttpMidlewareFn;
-use meh_http_server_rest::middleware::HttpMidlewareFnFut;
+//use meh_http_server_rest::middleware::HttpMiddlewareNext;
+use meh_http_server_rest::middleware::HttpMiddlewareRunner;
+//use meh_http_server_rest::middleware::HttpMidlewareFn;
+//use meh_http_server_rest::middleware::HttpMidlewareFnFut;
+use meh_http_server_rest::middleware::run_from_http;
+use meh_http_server_rest::middleware_chain::Chain;
 use meh_http_server_rest::openapi::Info;
 use meh_http_server_rest::openapi::Server;
-use meh_http_server_rest::quick_rest::enable_open_api;
-use meh_http_server_rest::quick_rest::openapi_final_handler;
+//use meh_http_server_rest::quick_rest::enable_open_api;
+//use meh_http_server_rest::quick_rest::openapi_final_handler;
 use meh_http_server_rest::response_builder::HttpResponseBuilder;
 //use meh_http_server_rest::quick_rest::quick_rest_value_with_openapi;
-use meh_http_server_rest::{quick_rest::QuickRestValue};
+//use meh_http_server_rest::{quick_rest::QuickRestValue};
 use meh_std_tests::StdEnv;
 use slog::warn;
 use slog::{info, o, Drain};
@@ -121,6 +127,7 @@ fn main() -> Result<(), TcpError> {
                 .http_chain(not_found());
                 */
 
+            /*
             let simple = HttpMidlewareFn::new(|ctx| {
                 warn!(ctx.logger, "simple!");
                 if ctx.request.path.as_deref() == Some("/error") {
@@ -139,7 +146,7 @@ fn main() -> Result<(), TcpError> {
                 Ok(r.into())
             }
             let all_ok = HttpMidlewareFnFut::new(all_ok_fn);
-
+            */
 
             /*
             let h = allow_cors_all()
@@ -164,13 +171,10 @@ fn main() -> Result<(), TcpError> {
             h.run(ctx).await;
             */
 
-            let chain = hlist![
-                allow_cors_all(),
-                simple,
-                all_ok
-            ];
+            let h = Chain::new(error_handler());
 
-            
+            run_from_http(h, DefaultContext::new(), ctx).await;
+            //h.run(ctx).await;
         }
 
         let env = StdEnv;

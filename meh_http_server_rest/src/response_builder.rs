@@ -11,7 +11,8 @@ where
 {
     pub additional_headers: Vec<HttpServerHeader>,
     pub extras: Extras,
-    pub(crate) ctx: HttpContext<S::Socket>,
+    pub(crate) http_ctx: HttpContext<S::Socket>,
+    pub middleware_context: S
 }
 
 impl<S> Deref for HttpResponseBuilder<S>
@@ -21,7 +22,7 @@ where
     type Target = HttpContext<S::Socket>;
 
     fn deref(&self) -> &Self::Target {
-        &self.ctx
+        &self.http_ctx
     }
 }
 
@@ -37,26 +38,26 @@ where
     ) -> Result<HttpReponseComplete, RestError> {
         let (http_code, http_code_str) = code.to_http();
 
-        self.ctx
+        self.http_ctx
             .socket
             .send(format!("HTTP/1.1 {} {}\r\n", http_code, http_code_str).as_bytes())
             .await?;
 
         if let Some(content_type) = content_type {
-            self.ctx.write(b"Content-Type: ").await?;
-            self.ctx.write(content_type.as_bytes()).await?;
-            self.ctx.write(b"\r\n").await?;
+            self.http_ctx.write(b"Content-Type: ").await?;
+            self.http_ctx.write(content_type.as_bytes()).await?;
+            self.http_ctx.write(b"\r\n").await?;
         }
 
         for header in self.additional_headers {
-            self.ctx
+            self.http_ctx
                 .write(format!("{}: {}\r\n", header.name, header.value).as_bytes())
                 .await?;
         }
 
-        self.ctx.write(b"\r\n").await?;
+        self.http_ctx.write(b"\r\n").await?;
         if let Some(body) = body {
-            self.ctx.write(body.as_bytes()).await?;
+            self.http_ctx.write(body.as_bytes()).await?;
         }
 
         Ok(HttpReponseComplete::new())
