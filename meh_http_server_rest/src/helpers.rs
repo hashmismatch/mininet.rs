@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
-use meh_http_common::{req::HttpServerHeader, resp::HttpStatusCodes, stack::TcpSocket};
-use slog::{debug, warn};
+use meh_http_common::{req::HttpServerHeader, resp::HttpStatusCodes};
+use slog::{warn};
 use async_trait::async_trait;
 
-use crate::{HandlerResult, HandlerResultOk, RestErrorContext, middleware::{ HttpMiddleware, HttpMiddlewareRunner, HttpMiddlewareContext}, middleware_fn::{HttpMidlewareFn, HttpMidlewareFnFut}, response_builder::HttpResponseBuilder};
+use crate::{HandlerResult, HandlerResultOk, RestErrorContext, middleware::{ HttpMiddleware, HttpMiddlewareRunner, HttpMiddlewareContext}, middleware_fn::{HttpMidlewareFn}, response_builder::HttpResponseBuilder};
 
 
 pub fn allow_cors_all<C>() -> HttpMidlewareFn<C>
@@ -12,7 +12,6 @@ where
     C: HttpMiddlewareContext
 {
     HttpMidlewareFn::new(|mut ctx: HttpResponseBuilder<C>| {
-        debug!(ctx.logger, "CORS");
         ctx.additional_headers.push(HttpServerHeader {
             name: "Access-Control-Allow-Origin".into(),
             value: "*".into(),

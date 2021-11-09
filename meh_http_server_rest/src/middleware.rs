@@ -1,13 +1,18 @@
-use std::{marker::PhantomData, ops::Add, pin::Pin, sync::Arc};
-
-use frunk::{HCons, hlist::Plucker, prelude::HList};
-use futures::Future;
-use meh_http_common::{resp::HttpStatusCodes, stack::TcpSocket};
+use std::{marker::PhantomData};
+use meh_http_common::{stack::TcpSocket};
 use async_trait::async_trait;
 use meh_http_server::HttpContext;
-use serde_json::json;
 
-use crate::{HandlerResult, HandlerResultOk, extras::Extras, response_builder::HttpResponseBuilder};
+use crate::{HandlerResult, extras::Extras, response_builder::HttpResponseBuilder};
+
+
+#[async_trait]
+pub trait HttpMiddleware: Send + Sized {
+    type Context: HttpMiddlewareContext;
+
+    async fn handle<N>(self, ctx: HttpResponseBuilder<Self::Context>, next: N) -> HandlerResult<Self::Context>
+        where N: HttpMiddlewareRunner<Context = Self::Context>;
+}
 
 #[async_trait]
 pub trait HttpMiddlewareRunner: Send + Sized {
@@ -55,16 +60,6 @@ where S: TcpSocket
 {
     pub fn new() -> Self { Self { _socket: PhantomData::default() } }
 }
-
-
-#[async_trait]
-pub trait HttpMiddleware: Send + Sized {
-    type Context: HttpMiddlewareContext;
-
-    async fn handle<N>(self, ctx: HttpResponseBuilder<Self::Context>, next: N) -> HandlerResult<Self::Context>
-        where N: HttpMiddlewareRunner<Context = Self::Context>;
-}
-
 
 
 

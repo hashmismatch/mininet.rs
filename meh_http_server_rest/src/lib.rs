@@ -4,31 +4,14 @@ pub mod middleware;
 pub mod middleware_chain;
 pub mod middleware_fn;
 pub mod openapi;
-//pub mod quick_rest;
 pub mod response_builder;
 pub mod error_handler;
-
 pub mod quick_rest;
 
-//pub mod xp;
-//pub mod xp2;
-
-use std::any::{Any, TypeId};
 use std::borrow::Cow;
-use std::collections::HashMap;
-use std::convert::Infallible;
-use std::future::Future;
-use std::marker::PhantomData;
-use std::ops::Deref;
-use std::pin::Pin;
-
-use meh_http_common::req::HttpServerHeader;
-use meh_http_common::resp::{HttpResponseWriter, HttpStatusCodes};
-use meh_http_common::stack::{TcpError, TcpSocket};
-use meh_http_server::HttpContext;
+use meh_http_common::stack::{TcpError};
 use middleware::HttpMiddlewareContext;
 use response_builder::{HttpReponseComplete, HttpResponseBuilder};
-use slog::warn;
 
 pub type RestResult<T = ()> = Result<T, RestError>;
 
@@ -58,11 +41,13 @@ impl From<TcpError> for RestError {
     }
 }
 
+/*
 impl<C> From<RestError> for RestErrorContext<C> where C: HttpMiddlewareContext {
     fn from(e: RestError) -> Self {
         RestErrorContext { ctx: None, error: e }
     }
 }
+*/
 
 pub type HandlerResult<S> = Result<HandlerResultOk<S>, RestErrorContext<S>>;
 

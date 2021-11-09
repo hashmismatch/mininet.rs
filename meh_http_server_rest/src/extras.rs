@@ -39,6 +39,19 @@ impl Extras {
             None
         }
     }
+
+    pub fn take<T>(&mut self) -> Option<Box<T>>
+    where
+        T: Any + Send + Sync + 'static,
+    {
+        let ty = TypeId::of::<T>();
+
+        if let Some(v) = self.extras.remove(&ty) {
+            v.downcast::<T>().ok()
+        } else {
+            None
+        }
+    }
 }
 
 #[test]
@@ -52,4 +65,6 @@ fn test_extras() {
     e.insert(5u32);
     let v = e.get::<u32>();
     assert_eq!(Some(&5), v);
+    let v = e.take::<u32>().unwrap();
+    assert_eq!(5, *v);
 }

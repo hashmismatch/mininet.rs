@@ -49,8 +49,8 @@ where
     async fn whole_api(self, mut ctx: HttpResponseBuilder<C>) -> HandlerResult<C> {
         let req_path = ctx.request.path.clone();
 
-        let openapi = ctx.extras.get_mut::<OpenApiContext>();
-        let openapi = if let Some(openapi) = openapi {
+        let openapi = ctx.extras.take::<OpenApiContext>();
+        let mut openapi = if let Some(openapi) = openapi {
             openapi
         } else {
             return Ok(ctx.into());
@@ -118,9 +118,21 @@ where
             if req_path.as_deref() == Some(&api_url) {
                 let mut map = Map::new();
                 for g in api.combined_getters.drain(..) {
-                    map.insert(g.id.clone().into_owned(), (g.getter)().unwrap());
+                    let v = (g.getter)();
+                    match v {
+                        Ok(v) => { map.insert(g.id.clone().into_owned(), v); },
+                        Err(e) => {
+                            return Err(RestErrorContext { error: e.into(), ctx: Some(ctx) });
+                        }
+                    }
                 }
-                let json = serde_json::to_string_pretty(&Value::Object(map)).unwrap();
+                let json = serde_json::to_string_pretty(&Value::Object(map));
+                let json = match json {
+                    Ok(json) => json,
+                    Err(e) => {
+                        return Err(RestErrorContext { error: e.into(), ctx: Some(ctx) });
+                    }
+                };
                 let r = ctx
                     .response(HttpStatusCodes::Ok, "application/json".into(), Some(&json))
                     .await;
@@ -293,14 +305,22 @@ where
                 name: "Access-Control-Allow-Headers".into(),
                 value: "*".into(),
             });
-            let r = ctx.response(HttpStatusCodes::NoContent, None, None).await?;
-            return Ok(r.into());
+            let r = ctx.response(HttpStatusCodes::NoContent, None, None).await;
+            return match r {
+                Err(e) => Err(RestErrorContext { error: e, ctx: None }),
+                Ok(c) => Ok(c.into())
+            };
         }
 
         if let Some(getter) = v.get {
             match method.as_deref() {
                 Some("GET") => {
-                    let value = (getter)()?;
+                    let value = match (getter)() {
+                        Ok(v) => v,
+                        Err(e) => {
+                            return Err(RestErrorContext { error: e.into(), ctx: Some(ctx) });
+                        }
+                    };
                     let dto = ValueDto { value };
 
                     let json = match serde_json::to_string_pretty(&dto) {
@@ -320,8 +340,11 @@ where
                     );
                     let r = ctx
                         .response(HttpStatusCodes::Ok, "application/json".into(), Some(&json))
-                        .await?;
-                    return Ok(r.into());
+                        .await;
+                    return match r {
+                        Err(e) => Err(RestErrorContext { error: e, ctx: None }),
+                        Ok(c) => Ok(c.into())
+                    };
                 }
                 _ => (),
             }
@@ -337,9 +360,18 @@ where
                                 l,
                                 "Set the new value. New value, as debug format: {:?}", dto.value
                             );
-                            (setter)(dto.value)?;
-                            let r = ctx.response(HttpStatusCodes::NoContent, None, None).await?;
-                            return Ok(r.into());
+                            match (setter)(dto.value) {
+                                Err(e) => {
+                                    return Err(RestErrorContext { error: e.into(), ctx: Some(ctx) });
+                                },
+                                _ => ()
+                            };
+                            
+                            let r = ctx.response(HttpStatusCodes::NoContent, None, None).await;
+                            return match r {
+                                Err(e) => Err(RestErrorContext { error: e, ctx: None }),
+                                Ok(c) => Ok(c.into())
+                            };
                         }
                         Err(e) => {
                             warn!(ctx.logger, "Failed to deserialize the body: {:?}", e);
