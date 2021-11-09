@@ -1,5 +1,7 @@
-use std::{borrow::Cow, collections::HashMap};
-
+use alloc::borrow::Cow;
+use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
+use alloc::string::String;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -8,7 +10,7 @@ pub struct OpenApi {
     pub openapi_version: Cow<'static, str>,
     pub info: Info,
     pub servers: Vec<Server>,
-    pub paths: HashMap<Cow<'static, str>, Path>
+    pub paths: BTreeMap<String, Path>
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -27,7 +29,7 @@ pub struct Server {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Path {
     #[serde(flatten)]
-    pub methods: HashMap<Cow<'static, str>, PathMethod>
+    pub methods: BTreeMap<Cow<'static, str>, PathMethod>
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -39,13 +41,13 @@ pub struct PathMethod {
     #[serde(rename="requestBody")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_body: Option<RequestBody>,
-    pub responses: HashMap<Cow<'static, str>, Response>
+    pub responses: BTreeMap<Cow<'static, str>, Response>
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Response {
     pub description: Cow<'static, str>,    
-    pub content: HashMap<Cow<'static, str>, ResponseContent>
+    pub content: BTreeMap<Cow<'static, str>, ResponseContent>
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -56,7 +58,7 @@ pub struct ResponseContent {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct RequestBody {
     pub required: bool,
-    pub content: HashMap<Cow<'static, str>, RequestContent>
+    pub content: BTreeMap<Cow<'static, str>, RequestContent>
 }
 
 #[derive(Serialize, Deserialize, Clone)]

@@ -1,5 +1,5 @@
-use std::pin::Pin;
-
+use core::pin::Pin;
+use alloc::boxed::Box;
 use async_trait::async_trait;
 use futures::Future;
 use crate::{HandlerResult, HandlerResultOk, middleware::{HttpMiddleware, HttpMiddlewareContext, HttpMiddlewareRunner}, response_builder::HttpResponseBuilder};

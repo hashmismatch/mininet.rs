@@ -1,9 +1,10 @@
-use std::{any::{Any, TypeId}, collections::HashMap};
-
+use core::any::{Any, TypeId};
+use alloc::collections::BTreeMap;
+use alloc::boxed::Box;
 
 #[derive(Default)]
 pub struct Extras {
-    extras: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
+    extras: BTreeMap<TypeId, Box<dyn Any + Send + Sync>>,
 }
 impl Extras {
     pub fn get<'a, T: 'static>(&'a self) -> Option<&'a T>

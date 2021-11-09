@@ -1,5 +1,11 @@
-use std::{borrow::Cow, collections::HashMap, marker::PhantomData};
+use alloc::borrow::Cow;
+use alloc::collections::BTreeMap;
+use alloc::string::String;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use alloc::string::ToString;
 
+use core::marker::PhantomData;
 use meh_http_common::{req::HttpServerHeader, resp::HttpStatusCodes};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -21,12 +27,12 @@ use async_trait::async_trait;
 
 struct OpenApiContext {
     is_openapi_request: bool,
-    apis: HashMap<Cow<'static, str>, OpenApiContextApi>,
+    apis: BTreeMap<String, OpenApiContextApi>,
 }
 
 struct OpenApiContextApi {
     path: Cow<'static, str>,
-    paths: HashMap<Cow<'static, str>, Path>,
+    paths: BTreeMap<String, Path>,
     combined_getters: Vec<OpenApiGetter>,
 }
 
@@ -56,7 +62,7 @@ where
             return Ok(ctx.into());
         };
 
-        let mut paths = HashMap::new();
+        let mut paths = BTreeMap::<String, Path>::new();
         for (api_id, api) in &openapi.apis {
             let api_url = format!("{}", api_id);
 
@@ -108,7 +114,7 @@ where
                 },
             );
 
-            paths.extend(api.paths.clone());
+            paths.extend(api.paths.iter().map(|(k, v)| (k.clone().to_string(), v.clone())));
         }
 
         // handle the GET request
@@ -198,9 +204,10 @@ where
             == Some(true)
             && ctx.request.method.as_ref().map(|s| s.as_str()) == Some("GET");
 
+
         let open_api = OpenApiContext {
             is_openapi_request,
-            apis: HashMap::new(),
+            apis: BTreeMap::new()
         };
 
         ctx.extras.insert(open_api);
@@ -403,13 +410,13 @@ where
             if let Some(openapi_ctx) = ctx.extras.get_mut::<OpenApiContext>() {
                 openapi_ctx
                     .apis
-                    .entry(v.api.clone())
+                    .entry(v.api.to_string())
                     .or_insert_with(|| OpenApiContextApi {
                         path: v.api.clone(),
-                        paths: HashMap::new(),
+                        paths: BTreeMap::new(),
                         combined_getters: vec![],
                     });
-                openapi_ctx.apis.entry(v.api.clone()).and_modify(|e| {
+                openapi_ctx.apis.entry(v.api.to_string()).and_modify(|e| {
                     e.combined_getters.push(g);
                 });
             }
@@ -479,11 +486,11 @@ where
                     }
                 }
             );
-            let mut methods = HashMap::new();
+            let mut methods = BTreeMap::new();
 
             // get
             {
-                let mut response_contents = HashMap::new();
+                let mut response_contents = BTreeMap::new();
                 response_contents.insert(
                     "application/json".into(),
                     ResponseContent {
@@ -491,7 +498,7 @@ where
                     },
                 );
 
-                let mut responses = HashMap::new();
+                let mut responses = BTreeMap::new();
                 responses.insert(
                     "200".into(),
                     Response {
@@ -513,12 +520,12 @@ where
 
             // set
             {
-                let mut responses = HashMap::new();
+                let mut responses = BTreeMap::new();
                 responses.insert(
                     "204".into(),
                     Response {
                         description: "Successfully set the new value".into(),
-                        content: HashMap::new(),
+                        content: BTreeMap::new(),
                     },
                 );
 
@@ -543,16 +550,16 @@ where
                 );
             }
 
-            let p: Cow<str> = format!("{}/{}", api, id).into();
-            openapi.apis.entry(api.clone()).or_insert_with({
+            let p = format!("{}/{}", api, id);
+            openapi.apis.entry(api.clone().to_string()).or_insert_with({
                 let api = api.clone();
                 move || OpenApiContextApi {
                     path: api.clone().into(),
-                    paths: HashMap::new(),
+                    paths: BTreeMap::new(),
                     combined_getters: vec![],
                 }
             });
-            openapi.apis.entry(api.clone()).and_modify(|e| {
+            openapi.apis.entry(api.clone().to_string()).and_modify(|e| {
                 e.paths.insert(p, Path { methods });
             });
         };

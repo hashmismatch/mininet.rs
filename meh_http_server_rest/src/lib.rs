@@ -13,12 +13,13 @@ pub mod response_builder;
 pub mod error_handler;
 pub mod quick_rest;
 
-use std::borrow::Cow;
 use meh_http_common::stack::{TcpError};
 use middleware::HttpMiddlewareContext;
 use response_builder::{HttpReponseComplete, HttpResponseBuilder};
 
 pub type RestResult<T = ()> = Result<T, RestError>;
+
+use alloc::borrow::Cow;
 
 #[derive(Debug)]
 pub enum RestError {

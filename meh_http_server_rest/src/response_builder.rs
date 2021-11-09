@@ -1,5 +1,5 @@
-use std::ops::Deref;
-
+use core::ops::Deref;
+use alloc::vec::Vec;
 use meh_http_common::{req::HttpServerHeader, resp::{HttpResponseWriter, HttpStatusCodes}, stack::TcpSocket};
 use meh_http_server::HttpContext;
 

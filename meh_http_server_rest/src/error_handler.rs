@@ -1,4 +1,5 @@
-use std::marker::PhantomData;
+use core::marker::PhantomData;
+use alloc::boxed::Box;
 use crate::{HandlerResult, RestErrorContext, middleware::{HttpMiddleware, HttpMiddlewareContext, HttpMiddlewareRunner}, response_builder::HttpResponseBuilder};
 use async_trait::async_trait;
 use meh_http_common::{resp::HttpStatusCodes};

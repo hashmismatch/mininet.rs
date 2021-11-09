@@ -16,4 +16,4 @@ slog = { version = "2.6.0", default-features = false }
 
 [features]
 default = ["std"]
-std = ["meh_http_common/std", "meh_http_server/std", "slog/std"]
+std = ["meh_http_common/std", "meh_http_server/std", "slog/std", "serde/std", "serde_json/std"]
