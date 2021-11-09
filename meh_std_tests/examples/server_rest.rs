@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use frunk::hlist;
 use meh_http_common::stack::TcpError;
 use meh_http_common::stack::TcpSocket;
 use meh_http_common::stack::TcpStack;
@@ -11,11 +10,13 @@ use meh_http_common::std::StdTcpSocket;
 use meh_http_common::std::StdTcpStack;
 use meh_http_server::http_server;
 use meh_http_server::HttpContext;
+use meh_http_server_rest::error_handler::error_handler;
+use meh_http_server_rest::extras::Extras;
+use meh_http_server_rest::helpers::allow_cors_all;
+use meh_http_server_rest::helpers::not_found;
 use meh_http_server_rest::HandlerResult;
 use meh_http_server_rest::RestError;
 use meh_http_server_rest::RestErrorContext;
-use meh_http_server_rest::error_handler::error_handler;
-use meh_http_server_rest::extras::Extras;
 //use meh_http_server_rest::helpers::allow_cors_all;
 //use meh_http_server_rest::helpers::not_found;
 //use meh_http_server_rest::middleware::Ctx;
@@ -32,9 +33,9 @@ use meh_http_server_rest::middleware_fn::HttpMidlewareFn;
 use meh_http_server_rest::middleware_fn::HttpMidlewareFnFut;
 use meh_http_server_rest::openapi::Info;
 use meh_http_server_rest::openapi::Server;
+use meh_http_server_rest::quick_rest::quick_rest_value_with_openapi;
 use meh_http_server_rest::quick_rest::QuickRestOpenApiMiddleware;
 use meh_http_server_rest::quick_rest::QuickRestValue;
-use meh_http_server_rest::quick_rest::quick_rest_value_with_openapi;
 //use meh_http_server_rest::quick_rest::enable_open_api;
 //use meh_http_server_rest::quick_rest::openapi_final_handler;
 use meh_http_server_rest::response_builder::HttpResponseBuilder;
@@ -64,10 +65,13 @@ fn main() -> Result<(), TcpError> {
 
         info!(logger, "Listening at http://{}/", addr);
 
-        async fn handle_request(ctx: HttpContext<StdTcpSocket>, num_value: Arc<Mutex<usize>>, str_value: Arc<Mutex<String>>) {
+        async fn handle_request(
+            ctx: HttpContext<StdTcpSocket>,
+            num_value: Arc<Mutex<usize>>,
+            str_value: Arc<Mutex<String>>,
+        ) {
             let api_id = "/simple";
 
-            
             let q = {
                 let v = QuickRestValue::new_getter_and_setter(
                     api_id.into(),
@@ -94,7 +98,6 @@ fn main() -> Result<(), TcpError> {
                 quick_rest_value_with_openapi(v)
             };
 
-            /*
             let q2 = {
                 let v = QuickRestValue::new_getter_and_setter(
                     api_id.into(),
@@ -120,29 +123,16 @@ fn main() -> Result<(), TcpError> {
                 );
                 quick_rest_value_with_openapi(v)
             };
-            */
 
-            /*
-            let h = allow_cors_all()
-                .http_chain(enable_open_api(Info { title: "API".into(), description: "yay".into(), version: "0.1.0".into() }, vec![
-                    Server {
-                        url: "http://localhost:8080".into(),
-                        description: "dev".into()
-                    }
-                ]))
-                .http_chain(q)
-                .http_chain(q2)
-                .http_chain(openapi_final_handler())
-                .http_chain(not_found());
-                */
-
-            
             let error_test = HttpMidlewareFn::new(|ctx| {
                 warn!(ctx.logger, "simple!");
                 if ctx.request.path.as_deref() == Some("/error") {
                     warn!(ctx.logger, "Boom!");
                     let err = RestError::ErrorMessage("I crashed!".into());
-                    Err(RestErrorContext { error: err, ctx: Some(ctx) })
+                    Err(RestErrorContext {
+                        error: err,
+                        ctx: Some(ctx),
+                    })
                 } else {
                     Ok(ctx.into())
                 }
@@ -151,7 +141,7 @@ fn main() -> Result<(), TcpError> {
             /*
             async fn all_ok_fn<S: HttpMiddlewareContext>(ctx: HttpResponseBuilder<S>) -> HandlerResult<S> {
                 warn!(ctx.logger, "all ok!");
-                
+
                 let r = ctx.response(meh_http_common::resp::HttpStatusCodes::Ok, Some("text/html".into()), Some(&"All ok!")).await;
 
                 match r {
@@ -161,26 +151,26 @@ fn main() -> Result<(), TcpError> {
             }
             let all_ok = HttpMidlewareFnFut::new(all_ok_fn);
             */
-            
 
             let openapi = QuickRestOpenApiMiddleware {
                 _context: PhantomData::default(),
-                info: Info { title: "API".into(), description: "yay".into(), version: "0.1.0".into() },
-                servers: vec![
-                    Server {
-                        url: "http://localhost:8080".into(),
-                        description: "dev".into()
-                    }
-                ]
+                info: Info {
+                    title: "API".into(),
+                    description: "yay".into(),
+                    version: "0.1.0".into(),
+                },
+                servers: vec![Server {
+                    url: "http://localhost:8080".into(),
+                    description: "dev".into(),
+                }],
             };
 
-            let h = Chain::new(error_handler())
-                .chain(openapi);
-
-            let h = h + q;
-
-            let h = h
-                //.chain(q)
+            let h = Chain::new(allow_cors_all())
+                .chain(error_handler())
+                .chain(not_found())
+                .chain(openapi)
+                .add(q)
+                .add(q2)
                 .chain(error_test)
                 //.chain(all_ok)
                 ;
@@ -192,9 +182,14 @@ fn main() -> Result<(), TcpError> {
         let env = StdEnv;
 
         let num_value = num_value.clone();
-        http_server(&logger, env, listener, |ctx| {
-            handle_request(ctx, num_value.clone(), str_value.clone())
-        }, Some(Duration::from_secs(10))).await;
+        http_server(
+            &logger,
+            env,
+            listener,
+            |ctx| handle_request(ctx, num_value.clone(), str_value.clone()),
+            Some(Duration::from_secs(10)),
+        )
+        .await;
 
         Ok(())
     };

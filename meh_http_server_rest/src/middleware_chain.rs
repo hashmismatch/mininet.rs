@@ -45,6 +45,12 @@ where C: HttpMiddlewareContext,
         let with = Chain::new(with);
         self + with
     }
+
+    pub fn add<N>(self, with: N) -> <Self as Add<N>>::Output
+        where Self: Add<N>
+    {
+        self + with
+    }
 }
 
 impl<C, H> Chain<C, H, Null<C>>
@@ -57,6 +63,12 @@ where C: HttpMiddlewareContext,
             head: middleware,
             tail: Null::new()
         }
+    }
+}
+
+impl<C, H> From<H> for Chain<C, H, Null<C>> where C: HttpMiddlewareContext, H: HttpMiddleware {
+    fn from(hm: H) -> Self {
+        Chain::new(hm)
     }
 }
 
