@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -31,6 +32,9 @@ use meh_http_server_rest::middleware_fn::HttpMidlewareFn;
 use meh_http_server_rest::middleware_fn::HttpMidlewareFnFut;
 use meh_http_server_rest::openapi::Info;
 use meh_http_server_rest::openapi::Server;
+use meh_http_server_rest::quick_rest::QuickRestOpenApiMiddleware;
+use meh_http_server_rest::quick_rest::QuickRestValue;
+use meh_http_server_rest::quick_rest::quick_rest_value_with_openapi;
 //use meh_http_server_rest::quick_rest::enable_open_api;
 //use meh_http_server_rest::quick_rest::openapi_final_handler;
 use meh_http_server_rest::response_builder::HttpResponseBuilder;
@@ -63,7 +67,7 @@ fn main() -> Result<(), TcpError> {
         async fn handle_request(ctx: HttpContext<StdTcpSocket>, num_value: Arc<Mutex<usize>>, str_value: Arc<Mutex<String>>) {
             let api_id = "/simple";
 
-            /*
+            
             let q = {
                 let v = QuickRestValue::new_getter_and_setter(
                     api_id.into(),
@@ -90,6 +94,7 @@ fn main() -> Result<(), TcpError> {
                 quick_rest_value_with_openapi(v)
             };
 
+            /*
             let q2 = {
                 let v = QuickRestValue::new_getter_and_setter(
                     api_id.into(),
@@ -143,6 +148,7 @@ fn main() -> Result<(), TcpError> {
                 }
             });
 
+            /*
             async fn all_ok_fn<S: HttpMiddlewareContext>(ctx: HttpResponseBuilder<S>) -> HandlerResult<S> {
                 warn!(ctx.logger, "all ok!");
                 
@@ -154,34 +160,30 @@ fn main() -> Result<(), TcpError> {
                 }
             }
             let all_ok = HttpMidlewareFnFut::new(all_ok_fn);
+            */
             
 
-            /*
-            let h = allow_cors_all()
-                .http_chain(simple)
-                .http_chain(not_found())
-                ;
-                */
-
-                /*
-            let h = not_found()
-            .http_chain(simple)
-            .http_chain(error_handler())
-            //.http_chain(allow_cors_all());
-            ;
-            */
-
-            /*
-            let h = error_handler()
-            .http_chain(simple)
-            .http_chain(all_ok);
-                
-            h.run(ctx).await;
-            */
+            let openapi = QuickRestOpenApiMiddleware {
+                _context: PhantomData::default(),
+                info: Info { title: "API".into(), description: "yay".into(), version: "0.1.0".into() },
+                servers: vec![
+                    Server {
+                        url: "http://localhost:8080".into(),
+                        description: "dev".into()
+                    }
+                ]
+            };
 
             let h = Chain::new(error_handler())
+                .chain(openapi);
+
+            let h = h + q;
+
+            let h = h
+                //.chain(q)
                 .chain(error_test)
-                .chain(all_ok);
+                //.chain(all_ok)
+                ;
 
             run_from_http(h, DefaultContext::new(), ctx).await;
             //h.run(ctx).await;

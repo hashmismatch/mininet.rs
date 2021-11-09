@@ -7,6 +7,9 @@ pub mod openapi;
 //pub mod quick_rest;
 pub mod response_builder;
 pub mod error_handler;
+
+pub mod quick_rest;
+
 //pub mod xp;
 //pub mod xp2;
 
@@ -52,6 +55,12 @@ impl From<serde_json::Error> for RestError {
 impl From<TcpError> for RestError {
     fn from(v: TcpError) -> Self {
         Self::TcpError(v)
+    }
+}
+
+impl<C> From<RestError> for RestErrorContext<C> where C: HttpMiddlewareContext {
+    fn from(e: RestError) -> Self {
+        RestErrorContext { ctx: None, error: e }
     }
 }
 
