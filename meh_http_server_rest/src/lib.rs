@@ -1,7 +1,8 @@
 pub mod extras;
-//pub mod helpers;
+pub mod helpers;
 pub mod middleware;
 pub mod middleware_chain;
+pub mod middleware_fn;
 pub mod openapi;
 //pub mod quick_rest;
 pub mod response_builder;
@@ -35,6 +36,13 @@ pub enum RestError {
     ErrorMessage(Cow<'static, str>)
 }
 
+pub struct RestErrorContext<S>
+    where S: HttpMiddlewareContext
+{
+    pub ctx: Option<HttpResponseBuilder<S>>,
+    pub error: RestError
+}
+
 impl From<serde_json::Error> for RestError {
     fn from(e: serde_json::Error) -> Self {
         Self::ErrorMessage(format!("JSON error: {}", e).into())
@@ -47,7 +55,7 @@ impl From<TcpError> for RestError {
     }
 }
 
-pub type HandlerResult<S> = Result<HandlerResultOk<S>, RestError>;
+pub type HandlerResult<S> = Result<HandlerResultOk<S>, RestErrorContext<S>>;
 
 pub struct HandlerError<S>
     where S: HttpMiddlewareContext

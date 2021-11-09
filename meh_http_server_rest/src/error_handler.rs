@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
-use crate::{HandlerResult, middleware::{HttpMiddleware, HttpMiddlewareContext, HttpMiddlewareRunner}, response_builder::HttpResponseBuilder};
+use crate::{HandlerResult, RestErrorContext, middleware::{HttpMiddleware, HttpMiddlewareContext, HttpMiddlewareRunner}, response_builder::HttpResponseBuilder};
 use async_trait::async_trait;
-use meh_http_common::stack::TcpSocket;
+use meh_http_common::{resp::HttpStatusCodes};
 use slog::{debug, error};
 
 pub fn error_handler<C>() -> ErrorHandler<C> {
@@ -29,37 +29,32 @@ impl<C> HttpMiddleware for ErrorHandler<C>
         let res = next.run(ctx).await;
         match res {
             Ok(_) => (),
-            Err(ref e) => {
-                error!(logger, "Encountered an error: {:?}", e);
+            Err(mut e) => {
+                error!(logger, "Encountered an error: {:?}", e.error);
+
+                if let Some(ctx) = e.ctx.take() {
+                    // try to render a response
+                    let html = format!(
+                        "<h1>Internal server error!!</h1><p>Error: {:?}</p><p>Request URL: <code>{:?}</code>, method <code>{:?}</code>.</p>",
+                        e.error, ctx.request.path, ctx.request.method
+                    );
+                
+                    let r = ctx
+                        .response(HttpStatusCodes::InternalError, "text/html".into(), Some(&html))
+                        .await;
+
+                    match r {
+                        Ok(_) => (),
+                        Err(e) => {
+                            error!(logger, "Failed to send the error response: {:?}", e);
+                        }
+                    }                    
+                }
+
+                return Err(RestErrorContext { error: e.error, ctx: None });
             }
         }
 
         res
     }
-
-    // async fn handle<H, T>(
-    //     self,
-    //     mut ctx: HttpResponseBuilder<Self::Socket>,
-    //     next: NextMiddleware<H, T>
-    // ) -> HandlerResult<Self::Socket>    
-    // where H: HttpMiddleware<Socket=Self::Socket>,
-    // T: NPop + NPop<Target = H> + Send,
-    // <T as NPop>::Remainder: Send
-    // {
-    //     todo!()
-    //     /*
-    //     let logger = ctx.logger.clone();
-    //     debug!(logger, "Error handler start.");
-
-    //     let res = next.process(ctx).await;
-    //     match res {
-    //         Ok(_) => (),
-    //         Err(ref e) => {
-    //             error!(logger, "Encountered an error: {:?}", e);
-    //         }
-    //     }
-
-    //     res
-    //     */
-    // }
 }

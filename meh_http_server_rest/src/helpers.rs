@@ -1,14 +1,14 @@
 use meh_http_common::{req::HttpServerHeader, resp::HttpStatusCodes, stack::TcpSocket};
 use slog::{debug, warn};
 
-use crate::{HandlerResult, middleware::{HttpMidlewareFn, HttpMidlewareFnFut}, response_builder::HttpResponseBuilder};
+use crate::{HandlerResult, RestErrorContext, middleware::HttpMiddlewareContext, middleware_fn::{HttpMidlewareFn, HttpMidlewareFnFut}, response_builder::HttpResponseBuilder};
 
 
-pub fn allow_cors_all<S>() -> HttpMidlewareFn<S>
+pub fn allow_cors_all<C>() -> HttpMidlewareFn<C>
 where
-    S: TcpSocket,
+    C: HttpMiddlewareContext
 {
-    HttpMidlewareFn::new(|mut ctx: HttpResponseBuilder<S>| {
+    HttpMidlewareFn::new(|mut ctx: HttpResponseBuilder<C>| {
         debug!(ctx.logger, "CORS");
         ctx.additional_headers.push(HttpServerHeader {
             name: "Access-Control-Allow-Origin".into(),
@@ -18,9 +18,9 @@ where
     })
 }
 
-pub async fn not_found_fn<S>(ctx: HttpResponseBuilder<S>) -> HandlerResult<S>
+pub async fn not_found_fn<C>(ctx: HttpResponseBuilder<C>) -> HandlerResult<C>
 where
-    S: TcpSocket,
+    C: HttpMiddlewareContext
 {
     let html = format!(
         "<h1>Not found!</h1><p>Request URL: <code>{:?}</code>, method <code>{:?}</code>.</p>",
@@ -31,13 +31,17 @@ where
 
     let r = ctx
         .response(HttpStatusCodes::NotFound, "text/html".into(), Some(&html))
-        .await?;
-    Ok(r.into())
+        .await;
+
+    match r {
+        Ok(c) => Ok(c.into()),
+        Err(e) => Err(RestErrorContext { error: e, ctx: None })
+    }
 }
 
-pub fn not_found<S>() -> HttpMidlewareFnFut<S>
+pub fn not_found<C>() -> HttpMidlewareFnFut<C>
 where
-    S: TcpSocket,
+    C: HttpMiddlewareContext + 'static
 {
     HttpMidlewareFnFut::new(not_found_fn)
 }

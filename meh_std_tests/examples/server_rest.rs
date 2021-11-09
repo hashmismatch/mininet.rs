@@ -12,6 +12,7 @@ use meh_http_server::http_server;
 use meh_http_server::HttpContext;
 use meh_http_server_rest::HandlerResult;
 use meh_http_server_rest::RestError;
+use meh_http_server_rest::RestErrorContext;
 use meh_http_server_rest::error_handler::error_handler;
 use meh_http_server_rest::extras::Extras;
 //use meh_http_server_rest::helpers::allow_cors_all;
@@ -19,12 +20,15 @@ use meh_http_server_rest::extras::Extras;
 //use meh_http_server_rest::middleware::Ctx;
 use meh_http_server_rest::middleware::DefaultContext;
 use meh_http_server_rest::middleware::HttpMiddleware;
+use meh_http_server_rest::middleware::HttpMiddlewareContext;
 //use meh_http_server_rest::middleware::HttpMiddlewareNext;
 use meh_http_server_rest::middleware::HttpMiddlewareRunner;
 //use meh_http_server_rest::middleware::HttpMidlewareFn;
 //use meh_http_server_rest::middleware::HttpMidlewareFnFut;
 use meh_http_server_rest::middleware::run_from_http;
 use meh_http_server_rest::middleware_chain::Chain;
+use meh_http_server_rest::middleware_fn::HttpMidlewareFn;
+use meh_http_server_rest::middleware_fn::HttpMidlewareFnFut;
 use meh_http_server_rest::openapi::Info;
 use meh_http_server_rest::openapi::Server;
 //use meh_http_server_rest::quick_rest::enable_open_api;
@@ -127,26 +131,30 @@ fn main() -> Result<(), TcpError> {
                 .http_chain(not_found());
                 */
 
-            /*
-            let simple = HttpMidlewareFn::new(|ctx| {
+            
+            let error_test = HttpMidlewareFn::new(|ctx| {
                 warn!(ctx.logger, "simple!");
                 if ctx.request.path.as_deref() == Some("/error") {
                     warn!(ctx.logger, "Boom!");
                     let err = RestError::ErrorMessage("I crashed!".into());
-                    Err(err)
+                    Err(RestErrorContext { error: err, ctx: Some(ctx) })
                 } else {
                     Ok(ctx.into())
                 }
             });
 
-            async fn all_ok_fn<S: TcpSocket>(ctx: HttpResponseBuilder<S>) -> HandlerResult<S> {
+            async fn all_ok_fn<S: HttpMiddlewareContext>(ctx: HttpResponseBuilder<S>) -> HandlerResult<S> {
                 warn!(ctx.logger, "all ok!");
                 
-                let r = ctx.response(meh_http_common::resp::HttpStatusCodes::Ok, Some("text/html".into()), Some(&"All ok!")).await?;
-                Ok(r.into())
+                let r = ctx.response(meh_http_common::resp::HttpStatusCodes::Ok, Some("text/html".into()), Some(&"All ok!")).await;
+
+                match r {
+                    Ok(r) => Ok(r.into()),
+                    Err(e) => Err(RestErrorContext { error: e, ctx: None })
+                }
             }
             let all_ok = HttpMidlewareFnFut::new(all_ok_fn);
-            */
+            
 
             /*
             let h = allow_cors_all()
@@ -171,7 +179,9 @@ fn main() -> Result<(), TcpError> {
             h.run(ctx).await;
             */
 
-            let h = Chain::new(error_handler());
+            let h = Chain::new(error_handler())
+                .chain(error_test)
+                .chain(all_ok);
 
             run_from_http(h, DefaultContext::new(), ctx).await;
             //h.run(ctx).await;
