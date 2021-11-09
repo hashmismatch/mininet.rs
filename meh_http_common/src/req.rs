@@ -1,4 +1,5 @@
-
+use alloc::string::String;
+use alloc::vec::Vec;
 #[derive(Debug)]
 pub struct HttpServerRequest {
     pub method: Option<String>,

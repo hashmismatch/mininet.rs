@@ -7,13 +7,13 @@ edition = "2021"
 
 [dependencies]
 meh_http_common = { path = "../meh_http_common/", default-features = false }
-slog = "2.7.0"
+slog = {version = "2.7.0", default-features = false }
 futures = { version = "0.3.15", default-features = false }
-httparse = "1.5.1"
-serde = "1.0.130"
-serde_json = "1.0.67"
+httparse = { version = "1.5.1", default-features = false }
+serde = { version = "1.0.130", default-features = false }
+serde_json = { version = "1.0.67", default-features = false, features = ["alloc"] }
 async-trait = "0.1.51"
 
 [features]
 default = ["std"]
-std = ["meh_http_common/std"]
+std = ["meh_http_common/std", "slog/std", "httparse/std", "serde/std", "serde_json/std"]

@@ -12,9 +12,8 @@ async-trait = "0.1.51"
 futures = { version = "0.3", default-features = false }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 serde_json = { verison = "1", default-features = false, features = ["alloc"] }
-slog = "2.6.0"
-frunk = "0.4"
+slog = { version = "2.6.0", default-features = false }
 
 [features]
 default = ["std"]
-std = ["meh_http_common/std", "meh_http_server/std"]
+std = ["meh_http_common/std", "meh_http_server/std", "slog/std"]

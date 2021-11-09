@@ -1,7 +1,7 @@
-use std::time::Duration;
-
+use core::time::Duration;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
 use async_trait::async_trait;
-use embedded_nal::IpAddr;
 
 #[derive(Debug, Copy, Clone)]
 pub enum TcpError {
