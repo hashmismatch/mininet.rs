@@ -1,8 +1,8 @@
 [workspace]
 members = [
-	"meh_http_client/",
-	"meh_http_server/",
-	"meh_http_server_rest/",
-	"meh_http_common/",
-	"meh_std_tests/"
+	"mininet_http_client/",
+	"mininet_http_server/",
+	"mininet_http_server_rest/",
+	"mininet_base/",
+	"mininet_std_tests/"
 ]

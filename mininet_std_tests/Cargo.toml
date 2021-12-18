@@ -1,5 +1,5 @@
 [package]
-name = "meh_std_tests"
+name = "mininet_std_tests"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -8,10 +8,10 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-meh_http_common = { path = "../meh_http_common/" }
-meh_http_client = { path = "../meh_http_client/" }
-meh_http_server = { path = "../meh_http_server/" }
-meh_http_server_rest = { path = "../meh_http_server_rest/" }
+mininet_base = { path = "../mininet_base/" }
+mininet_http_client = { path = "../mininet_http_client/" }
+mininet_http_server = { path = "../mininet_http_server/" }
+mininet_http_server_rest = { path = "../mininet_http_server_rest/" }
 async-std = { version = "1.10" }
 async-io = "1.4.1"
 futures = { version = "0.3.15", features = ["thread-pool"] }
