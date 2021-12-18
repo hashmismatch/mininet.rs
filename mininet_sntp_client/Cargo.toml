@@ -1,0 +1,17 @@
+[package]
+name = "mininet_sntp_client"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+mininet_base = { path = "../mininet_base/", default-features = false }
+
+[features]
+default = ["std"]
+std = ["mininet_base/std"]
+
+
+[dev-dependencies]
+time = {version = "0.3"}

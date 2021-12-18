@@ -4,5 +4,6 @@ members = [
 	"mininet_http_server/",
 	"mininet_http_server_rest/",
 	"mininet_base/",
-	"mininet_std_tests/"
+	"mininet_std_tests/",
+	"mininet_sntp_client/"
 ]

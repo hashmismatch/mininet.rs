@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use crate::stack::{TcpStack, TcpError, TcpListen, TcpSocket};
+use crate::stack::{TcpStack, TcpError, TcpListen, TcpSocket, UdpSocket};
 use async_trait::async_trait;
 use async_std::{io::{WriteExt, ReadExt}, net::TcpListener};
 
@@ -79,6 +79,7 @@ pub fn from_async_socket_addr(addr: async_std::net::SocketAddr) -> crate::addr::
 impl TcpStack for StdTcpStack {
     type TcpSocket = StdTcpSocket;
     type TcpListener = StdTcpSocketListener;
+    type UdpSocket = StdUdpSocket;
 
     async fn create_socket_connected(&mut self, addr: crate::addr::SocketAddr) -> Result<Self::TcpSocket, TcpError> {
 
@@ -107,5 +108,30 @@ impl TcpStack for StdTcpStack {
     async fn create_socket_listener(&mut self, addr: crate::addr::SocketAddr) -> Result<Self::TcpListener, TcpError> {
         let listener = TcpListener::bind(to_async_socket_addr(addr)).await.map_err(|_| TcpError::Unknown)?;
         Ok(StdTcpSocketListener(listener))
+    }
+
+    async fn create_udp_socket(&mut self) -> Result<Self::UdpSocket, TcpError> {
+        let socket = async_std::net::UdpSocket::bind("0.0.0.0:0")
+            .await
+            .map_err(|_e| TcpError::Unknown)?;;
+        Ok(StdUdpSocket(socket))
+    }
+}
+
+
+pub struct StdUdpSocket(async_std::net::UdpSocket);
+
+#[async_trait]
+impl UdpSocket for StdUdpSocket {
+    async fn read_from<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<(usize, crate::addr::SocketAddr), TcpError> {
+        let (len, addr) = self.0.recv_from(buf).await.map_err(|_| TcpError::Unknown)?;
+        Ok((len, from_async_socket_addr(addr)))
+    }
+
+    async fn send_to(&mut self, addr: crate::addr::SocketAddr, data: &[u8]) -> Result<usize, TcpError> {
+        match self.0.send_to(data, to_async_socket_addr(addr)).await {
+            Ok(n) => Ok(n),
+            Err(_) => Err(TcpError::Unknown)
+        }
     }
 }
