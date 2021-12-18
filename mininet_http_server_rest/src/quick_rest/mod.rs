@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use alloc::string::ToString;
 
 use core::marker::PhantomData;
-use meh_http_common::{req::HttpServerHeader, resp::HttpStatusCodes};
+use mininet_base::{req::HttpServerHeader, resp::HttpStatusCodes};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use slog::{debug, info, o, trace, warn};

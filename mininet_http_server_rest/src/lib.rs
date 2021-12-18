@@ -13,7 +13,7 @@ pub mod response_builder;
 pub mod error_handler;
 pub mod quick_rest;
 
-use meh_http_common::stack::{TcpError};
+use mininet_base::stack::{TcpError};
 use middleware::HttpMiddlewareContext;
 use response_builder::{HttpReponseComplete, HttpResponseBuilder};
 

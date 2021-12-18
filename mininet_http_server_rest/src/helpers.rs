@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 use alloc::boxed::Box;
-use meh_http_common::{req::HttpServerHeader, resp::HttpStatusCodes};
+use mininet_base::{req::HttpServerHeader, resp::HttpStatusCodes};
 use slog::{warn};
 use async_trait::async_trait;
 

@@ -3,9 +3,7 @@
 extern crate alloc;
 
 use alloc::{format, string::{String, ToString}, vec::Vec, vec};
-use meh_http_common::{addr::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4}, stack::{TcpError, TcpSocket, TcpStack}};
-//use embedded_nal::{IpAddr, Ipv4Addr, SocketAddr};
-//use esp_at_stack::{processor::StackChannels, stack::{EspNetworkStack, NetworkStackError}};
+use mininet_base::{addr::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4}, stack::{TcpError, TcpSocket, TcpStack}};
 use slog::{Logger, info};
 
 
@@ -37,7 +35,7 @@ impl From<httparse::Error> for HttpClientError {
 pub async fn http_get<S>(logger: &Logger, stack: &mut S, url: &str) -> Result<Response, HttpClientError>
     where S: TcpStack
 {
-    let url_parsed = meh_http_common::url::Url::parse(url).map_err(|e| HttpClientError::UrlParseError)?.1;
+    let url_parsed = mininet_base::url::Url::parse(url).map_err(|e| HttpClientError::UrlParseError)?.1;
     info!(logger, "Url: {:?}", url_parsed);
     
     let port = match (url_parsed.port, url_parsed.scheme.as_str()) {
@@ -47,10 +45,10 @@ pub async fn http_get<S>(logger: &Logger, stack: &mut S, url: &str) -> Result<Re
     }?;
 
     let socket_addr = match url_parsed.authority {
-        meh_http_common::url::Authority::Hostname(ref h) => {
+        mininet_base::url::Authority::Hostname(ref h) => {
             stack.get_socket_address(&format!("{}:{}", h, port)).await?
         },
-        meh_http_common::url::Authority::Ip((a, b, c, d)) => {
+        mininet_base::url::Authority::Ip((a, b, c, d)) => {
             let ip = Ipv4Addr::new(a, b, c, d);
             SocketAddrV4::new(ip, port).into()
         },
@@ -61,8 +59,8 @@ pub async fn http_get<S>(logger: &Logger, stack: &mut S, url: &str) -> Result<Re
     let mut socket = stack.create_socket_connected(socket_addr).await?;
     
     let host = match url_parsed.authority {
-        meh_http_common::url::Authority::Hostname(ref h) => h.clone(),
-        meh_http_common::url::Authority::Ip(ip) => {
+        mininet_base::url::Authority::Hostname(ref h) => h.clone(),
+        mininet_base::url::Authority::Ip(ip) => {
             let host: Vec<_> = [ip.0, ip.1, ip.2, ip.3].iter().map(|o| o.to_string()).collect();
             host.join(".")
         },

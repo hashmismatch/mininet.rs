@@ -1,14 +1,14 @@
 use std::time::Duration;
 
-use meh_http_common::std::StdTcpStack;
-use meh_http_common::stack::TcpStack;
-use meh_http_common::stack::TcpError;
-use meh_std_tests::StdEnv;
+use mininet_base::std::StdTcpStack;
+use mininet_base::stack::TcpStack;
+use mininet_base::stack::TcpError;
+use mininet_std_tests::StdEnv;
 use slog::{o, Drain, info};
-use meh_http_server::http_server;
-use meh_http_common::resp::HttpResponseWriter;
-use meh_http_server::HttpContext;
-use meh_http_common::std::StdTcpSocket;
+use mininet_http_server::http_server;
+use mininet_base::resp::HttpResponseWriter;
+use mininet_http_server::HttpContext;
+use mininet_base::std::StdTcpSocket;
 
 fn main() -> Result<(), TcpError> {
 
@@ -20,7 +20,7 @@ fn main() -> Result<(), TcpError> {
 
         let mut stack = StdTcpStack;
 
-        let addr = meh_http_common::addr::SocketAddrV4::new(meh_http_common::addr::Ipv4Addr::new(127, 0, 0, 1), 8080);
+        let addr = mininet_base::addr::SocketAddrV4::new(mininet_base::addr::Ipv4Addr::new(127, 0, 0, 1), 8080);
         let listener = stack.create_socket_listener(addr.into()).await?;
 
         info!(logger, "Listening at {}", addr);

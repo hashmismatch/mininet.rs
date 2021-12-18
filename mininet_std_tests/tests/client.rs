@@ -1,10 +1,10 @@
-extern crate meh_http_common;
-extern crate meh_http_client;
+extern crate mininet_base;
+extern crate mininet_http_client;
 
-use meh_http_client::HttpClientError;
-use meh_http_common::std::StdTcpStack;
-use meh_http_common::stack::TcpStack;
-use meh_http_client::http_get;
+use mininet_http_client::HttpClientError;
+use mininet_base::std::StdTcpStack;
+use mininet_base::stack::TcpStack;
+use mininet_http_client::http_get;
 use slog::{o, Drain};
 
 #[tokio::test]

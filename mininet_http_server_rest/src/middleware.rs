@@ -1,8 +1,8 @@
 use core::marker::PhantomData;
 use alloc::boxed::Box;
-use meh_http_common::{stack::TcpSocket};
+use mininet_base::{stack::TcpSocket};
 use async_trait::async_trait;
-use meh_http_server::HttpContext;
+use mininet_http_server::HttpContext;
 
 use crate::{HandlerResult, extras::Extras, response_builder::HttpResponseBuilder};
 

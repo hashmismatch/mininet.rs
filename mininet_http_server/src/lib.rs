@@ -12,7 +12,7 @@ use alloc::{
 };
 use async_trait::async_trait;
 use futures::Future;
-use meh_http_common::{req::{HttpServerHeader, HttpServerRequest}, resp::HttpResponseWriter, stack::{SystemEnvironment, TcpError, TcpListen, TcpSocket, with_timeout}};
+use mininet_base::{req::{HttpServerHeader, HttpServerRequest}, resp::HttpResponseWriter, stack::{SystemEnvironment, TcpError, TcpListen, TcpSocket, with_timeout}};
 use slog::{Logger, debug, error, info, o};
 
 #[derive(Debug, Copy, Clone)]
