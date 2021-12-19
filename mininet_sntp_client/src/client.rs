@@ -20,6 +20,9 @@ pub async fn get_sntp_time_offset<S, F>(stack: &mut S, sntp_server: SocketAddr, 
     
     let mut buf = [0; 48];
     let (recv, address) = socket.read_from(&mut buf).await?;
+    if recv != 48 {
+        return Err(TcpError::Unknown);
+    }
 
     let received_at = get_current_time();;
 

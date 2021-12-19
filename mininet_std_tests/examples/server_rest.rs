@@ -138,20 +138,6 @@ fn main() -> Result<(), TcpError> {
                 }
             });
 
-            /*
-            async fn all_ok_fn<S: HttpMiddlewareContext>(ctx: HttpResponseBuilder<S>) -> HandlerResult<S> {
-                warn!(ctx.logger, "all ok!");
-
-                let r = ctx.response(meh_http_common::resp::HttpStatusCodes::Ok, Some("text/html".into()), Some(&"All ok!")).await;
-
-                match r {
-                    Ok(r) => Ok(r.into()),
-                    Err(e) => Err(RestErrorContext { error: e, ctx: None })
-                }
-            }
-            let all_ok = HttpMidlewareFnFut::new(all_ok_fn);
-            */
-
             let openapi = QuickRestOpenApiMiddleware {
                 _context: PhantomData::default(),
                 info: Info {
@@ -172,11 +158,9 @@ fn main() -> Result<(), TcpError> {
                 .add(q)
                 .add(q2)
                 .chain(error_test)
-                //.chain(all_ok)
                 ;
 
             run_from_http(h, DefaultContext::new(), ctx).await;
-            //h.run(ctx).await;
         }
 
         let env = StdEnv;

@@ -87,68 +87,6 @@ where
     }
 }
 
-/*
-pub struct HttpServer<E> {
-    logger: Logger,
-    listen: ListenSocket,
-    env: E
-}
-
-impl<E> HttpServer<E> where E: ExecuteEnvironment {
-    pub fn new(logger: &Logger, env: E, listen: ListenSocket) -> Self {
-        HttpServer {
-            logger: logger.new(o!("ctx" => "http_server")),
-            listen,
-            env
-        }
-    }
-
-    pub async fn start<H, Fut>(mut self, handler: H)
-        where H: Fn(HttpContext) -> Fut, Fut: Future<Output=()>
-    {
-        let mut id = 1;
-        info!(self.logger, "Http server listening");
-        loop {
-            match self.listen.accept_async().await {
-                Ok((mut socket, addr)) => {
-                    info!(self.logger, "Accepted a socket from {:?}", addr);
-
-                    let logger = self.logger.new(o!("request_id" => id));
-                    id += 1;
-
-                    let http_parse = parse(&self.logger, &mut socket);
-                    let timeout = Duration::from_secs(10);
-
-                    match with_timeout(&self.env, http_parse, timeout).await {
-                        Ok(Ok(req)) => {
-                            info!(logger, "HTTP request: {:#?}", req);
-
-                            let ctx = HttpContext {
-                                logger: logger.clone(),
-                                request: req,
-                                socket
-                            };
-                            handler(ctx).await;
-
-                            info!(logger, "Request handler finished.");
-                        },
-                        Ok(Err(e)) => {
-                            error!(logger, "Failed to parse the requst: {:?}", e);
-                        },
-                        Err(_) => {
-                            error!(logger, "The incoming request timed out after {} seconds.", timeout.as_secs());
-                        }
-                    }
-                },
-                Err(_) => {
-                    error!(self.logger, "Listen socket stopped, shutting down.");
-                    break;
-                },
-            }
-        }
-    }
-}
-*/
 
 pub async fn parse<S>(logger: &Logger, socket: &mut S) -> Result<HttpServerRequest, HttpServerError>
 where

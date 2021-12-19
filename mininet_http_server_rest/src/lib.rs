@@ -47,13 +47,6 @@ impl From<TcpError> for RestError {
     }
 }
 
-/*
-impl<C> From<RestError> for RestErrorContext<C> where C: HttpMiddlewareContext {
-    fn from(e: RestError) -> Self {
-        RestErrorContext { ctx: None, error: e }
-    }
-}
-*/
 
 pub type HandlerResult<S> = Result<HandlerResultOk<S>, RestErrorContext<S>>;
 
